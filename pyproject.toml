@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quickbase-structure-client"
+version = "0.1.0"
+description = "Python client for Quickbase structural operations, trustees management, schema backups, and schema exporting"
+authors = [{ name = "Derek Banker", email = "dbb2002@gmail.com" }]
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["quickbase", "api", "structure", "schema", "trustees", "solutions"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "python-dotenv",
+    "ruff",
+    "types-requests",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["quickbase_structure_client*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "build", "dist", "*.egg-info", "__pycache__"]
+markers = [
+    "integration: live Quickbase integration tests requiring explicit env vars",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests", "examples"]
+mypy_path = "src"
+namespace_packages = true
+show_error_codes = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["quickbase_structure_client"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true
