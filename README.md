@@ -95,6 +95,9 @@ If Quickbase returns `User token is invalid`, verify that:
 
 - `QUICKBASE_REALM_HOSTNAME` is the same realm where the token was generated.
 - `QUICKBASE_USER_TOKEN` is a user token, not an app token.
+- `QUICKBASE_DEMO_ASSIGN_TOKEN=true` when creating a new demo app. User tokens
+  are scoped to assigned apps, so a token can create an app but still fail on
+  table/field calls unless it is assigned to that new app.
 - The value has no quotes, comments, or copied label text around it.
 - The token's user has permission to create apps in that realm.
 

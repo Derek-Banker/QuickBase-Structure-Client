@@ -28,6 +28,7 @@ class DemoConfig:
     user_token: str
     app_name: str
     execute: bool
+    assign_token: bool
     auto_backup: bool
     backup_method: BackupMethod
     backup_solution_id: str | None
@@ -44,6 +45,9 @@ class DemoResult:
     app_id: str | None
     users_table_id: str | None
     events_table_id: str | None
+    app_url: str | None
+    users_table_url: str | None
+    events_table_url: str | None
     schema_json_path: Path | None
     schema_markdown_path: Path | None
 
@@ -101,6 +105,13 @@ def parse_optional_int(value: str) -> int | None:
         raise DemoConfigurationError(f"Expected an integer role id, got {value!r}.") from exc
 
 
+def quickbase_resource_url(realm_hostname: str, dbid: str | None) -> str | None:
+    if not dbid:
+        return None
+    realm = realm_hostname.strip().removeprefix("https://").removeprefix("http://").strip("/")
+    return f"https://{realm}/db/{dbid}"
+
+
 def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfig:
     env_file_values = load_env_file(env_file)
     execute = execute_override or parse_bool(
@@ -134,6 +145,10 @@ def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfi
             "PTO Tracking Demo",
         ),
         execute=execute,
+        assign_token=parse_bool(
+            _env_value(env_file_values, "QUICKBASE_DEMO_ASSIGN_TOKEN"),
+            default=True,
+        ),
         auto_backup=parse_bool(
             _env_value(env_file_values, "QUICKBASE_DEMO_AUTO_BACKUP"),
             default=False,
@@ -161,6 +176,7 @@ def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfi
 def demo_plan(config: DemoConfig) -> list[str]:
     plan = [
         f"Create app: {config.app_name}",
+        f"Assign user token to created app: {config.assign_token}",
         "Create Users table with employee name, email, manager, department, PTO balance fields",
         "Create PTO Events table with start/end date, type, status, hours, notes, formula fields",
     ]
@@ -179,6 +195,7 @@ def print_plan(config: DemoConfig) -> None:
     print(f"PTO tracking demo mode: {mode}")
     print(f"Realm: {config.realm_hostname}")
     print(f"App name: {config.app_name}")
+    print(f"Assign token to app: {config.assign_token}")
     print(f"Auto backup: {config.auto_backup} ({config.backup_method})")
     print("")
     for index, step in enumerate(demo_plan(config), start=1):
@@ -223,9 +240,13 @@ def run_demo(config: DemoConfig) -> DemoResult:
     app = client.create_app(
         config.app_name,
         description="Demo PTO tracker created by quickbase-structure-client.",
+        assign_token=config.assign_token,
     )
     if not app.id:
         raise DemoConfigurationError("Quickbase did not return an app id.")
+    app_url = quickbase_resource_url(config.realm_hostname, app.id)
+    print(f"App id: {app.id}")
+    print(f"App URL: {app_url}")
 
     print("Creating Users table")
     users = app.create_table(
@@ -235,6 +256,9 @@ def run_demo(config: DemoConfig) -> DemoResult:
         description="Employees eligible for PTO.",
     )
     users_table_id = _require_created_id({"id": users.id}, "Users table")
+    users_table_url = quickbase_resource_url(config.realm_hostname, users_table_id)
+    print(f"Users table id: {users_table_id}")
+    print(f"Users table URL: {users_table_url}")
 
     print("Creating PTO Events table")
     events = app.create_table(
@@ -244,6 +268,9 @@ def run_demo(config: DemoConfig) -> DemoResult:
         description="Requested and approved PTO events.",
     )
     events_table_id = _require_created_id({"id": events.id}, "PTO Events table")
+    events_table_url = quickbase_resource_url(config.realm_hostname, events_table_id)
+    print(f"PTO Events table id: {events_table_id}")
+    print(f"PTO Events table URL: {events_table_url}")
 
     user_fields = _create_fields(
         users,
@@ -323,8 +350,11 @@ def run_demo(config: DemoConfig) -> DemoResult:
 
     print("Demo complete.")
     print(f"App id: {app.id}")
+    print(f"App URL: {app_url}")
     print(f"Users table id: {users_table_id}")
+    print(f"Users table URL: {users_table_url}")
     print(f"PTO Events table id: {events_table_id}")
+    print(f"PTO Events table URL: {events_table_url}")
     print(f"Schema JSON: {schema_json_path}")
     print(f"Schema Markdown: {schema_markdown_path}")
 
@@ -332,6 +362,9 @@ def run_demo(config: DemoConfig) -> DemoResult:
         app_id=app.id,
         users_table_id=users_table_id,
         events_table_id=events_table_id,
+        app_url=app_url,
+        users_table_url=users_table_url,
+        events_table_url=events_table_url,
         schema_json_path=schema_json_path,
         schema_markdown_path=schema_markdown_path,
     )
@@ -367,6 +400,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except (DemoConfigurationError, QuickbaseError) as exc:
         print(f"Demo failed: {exc}", file=sys.stderr)
+        print(
+            "If the failure happened after app creation, use the printed app URL "
+            "to inspect or delete the partial demo app.",
+            file=sys.stderr,
+        )
         return 1
 
 

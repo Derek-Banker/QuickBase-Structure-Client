@@ -45,6 +45,24 @@ def test_app_copy_uses_nested_copy_properties() -> None:
     }
 
 
+def test_app_create_can_assign_user_token_to_new_app() -> None:
+    client = RecordingClient([FakeResponse({"id": "app1"})])
+    app = StructureApp(cast(Any, client))
+
+    created = app.create("PTO Demo", description="Demo", assign_token=True)
+
+    assert created.id == "app1"
+    assert client.calls[0] == {
+        "method": "POST",
+        "endpoint": "/apps",
+        "payload": {
+            "name": "PTO Demo",
+            "description": "Demo",
+            "assignToken": True,
+        },
+    }
+
+
 def test_app_delete_requires_confirmation_name() -> None:
     client = RecordingClient()
     app = StructureApp(cast(Any, client), id="app1")

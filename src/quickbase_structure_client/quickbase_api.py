@@ -320,9 +320,19 @@ class QuickBaseStructureClient:
 
         return StructureTable(self, id=id, app_id=app_id, name=name)
 
-    def create_app(self, name: str, description: str | None = None) -> StructureApp:
+    def create_app(
+        self,
+        name: str,
+        description: str | None = None,
+        *,
+        assign_token: bool = False,
+    ) -> StructureApp:
         """Create a new Quickbase application."""
-        return self.app_manager.create(name=name, description=description)
+        return self.app_manager.create(
+            name=name,
+            description=description,
+            assign_token=assign_token,
+        )
 
     def update_app(
         self,

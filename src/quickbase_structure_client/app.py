@@ -56,11 +56,19 @@ class StructureApp:
             self._name = data["name"]
         return data
 
-    def create(self, name: str, description: str | None = None) -> StructureApp:
+    def create(
+        self,
+        name: str,
+        description: str | None = None,
+        *,
+        assign_token: bool = False,
+    ) -> StructureApp:
         """Create a new application via POST /v1/apps."""
         payload: Dict[str, Any] = {"name": name}
         if description:
             payload["description"] = description
+        if assign_token:
+            payload["assignToken"] = True
 
         response = self.api_client.request(
             method="POST",

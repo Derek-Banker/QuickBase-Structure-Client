@@ -41,6 +41,7 @@ def test_build_config_defaults_to_dry_run_without_credentials(
     assert config.realm_hostname == "example.quickbase.com"
     assert config.user_token == "<qb-user-token>"
     assert config.app_name == "PTO Tracking Demo"
+    assert config.assign_token is True
 
 
 def test_build_config_rejects_placeholder_credentials_for_execute(tmp_path: Path) -> None:
@@ -64,6 +65,7 @@ def test_demo_plan_includes_optional_relationship_and_trustee(tmp_path: Path) ->
         user_token="token",
         app_name="PTO Demo",
         execute=False,
+        assign_token=True,
         auto_backup=False,
         backup_method="schema",
         backup_solution_id=None,
@@ -79,6 +81,14 @@ def test_demo_plan_includes_optional_relationship_and_trustee(tmp_path: Path) ->
 
     assert "Create relationship: Users -> PTO Events" in plan
     assert "Add trustee admin@example.com with role id 12" in plan
+
+
+def test_quickbase_resource_url_normalizes_realm() -> None:
+    assert (
+        demo.quickbase_resource_url("https://co2monitoring.quickbase.com/", "bv4n4bifc")
+        == "https://co2monitoring.quickbase.com/db/bv4n4bifc"
+    )
+    assert demo.quickbase_resource_url("co2monitoring.quickbase.com", None) is None
 
 
 def test_main_dry_run_does_not_require_live_credentials(tmp_path: Path, capsys) -> None:
@@ -153,9 +163,23 @@ class FakeClient:
         self.app = FakeApp("app1")
         self.exporter = FakeExporter()
         self.kwargs = kwargs
+        self.create_app_calls: list[dict[str, Any]] = []
         FakeClient.created.append(self)
 
-    def create_app(self, name: str, description: str | None = None) -> FakeApp:
+    def create_app(
+        self,
+        name: str,
+        description: str | None = None,
+        *,
+        assign_token: bool = False,
+    ) -> FakeApp:
+        self.create_app_calls.append(
+            {
+                "name": name,
+                "description": description,
+                "assign_token": assign_token,
+            }
+        )
         return self.app
 
 
@@ -170,6 +194,7 @@ def test_run_demo_creates_pto_structure_with_fake_client(
         user_token="token",
         app_name="PTO Demo",
         execute=True,
+        assign_token=True,
         auto_backup=False,
         backup_method="schema",
         backup_solution_id=None,
@@ -185,6 +210,10 @@ def test_run_demo_creates_pto_structure_with_fake_client(
 
     fake_client = FakeClient.created[0]
     assert result.app_id == "app1"
+    assert fake_client.create_app_calls[0]["assign_token"] is True
+    assert result.app_url == "https://demo.quickbase.com/db/app1"
+    assert result.users_table_url == "https://demo.quickbase.com/db/table1"
+    assert result.events_table_url == "https://demo.quickbase.com/db/table2"
     assert [table.name for table in fake_client.app.tables] == ["User", "PTO Event"]
     assert len(fake_client.app.tables[0].fields) == 5
     assert len(fake_client.app.tables[1].fields) == 7
