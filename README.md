@@ -101,6 +101,10 @@ If Quickbase returns `User token is invalid`, verify that:
 - The value has no quotes, comments, or copied label text around it.
 - The token's user has permission to create apps in that realm.
 
+If Quickbase returns `Extraneous key 'description' is not permitted` while
+creating fields, use `fieldHelp` instead of `description`. The client maps
+`description` to `fieldHelp` for field create/update convenience.
+
 ## Supported Surface
 
 - Core sync client: `QuickBaseStructureClient`

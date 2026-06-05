@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict
 
 from quickbase_structure_client.exceptions import QuickbaseValidationError, format_error_message
+from quickbase_structure_client.table import normalize_field_payload
 
 if TYPE_CHECKING:
     from quickbase_structure_client.quickbase_api import QuickBaseStructureClient
@@ -81,7 +82,7 @@ class StructureField:
             "fieldType": field_type,
         }
         if properties:
-            payload.update(properties)
+            payload.update(normalize_field_payload(properties))
 
         response = self.api_client.request(
             method="POST",
@@ -113,7 +114,7 @@ class StructureField:
         response = self.api_client.request(
             method="POST",
             endpoint=f"/fields/{field_id}?tableId={self._table_id}",
-            payload=properties,
+            payload=normalize_field_payload(properties),
             app_id_for_backup=self._backup_app_id("StructureField.update"),
         )
         data = response.json()

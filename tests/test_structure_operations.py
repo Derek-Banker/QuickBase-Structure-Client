@@ -125,6 +125,19 @@ def test_table_update_field_and_relationship_use_structural_post_methods() -> No
     assert client.calls[2]["endpoint"] == "/tables/table1/relationship/3"
 
 
+def test_table_create_field_maps_description_to_field_help() -> None:
+    client = RecordingClient([FakeResponse({"id": 6})])
+    table = StructureTable(cast(Any, client), id="table1", app_id="app1")
+
+    table.create_field("Employee Name", "text", {"description": "Employee display name."})
+
+    assert client.calls[0]["payload"] == {
+        "label": "Employee Name",
+        "fieldType": "text",
+        "fieldHelp": "Employee display name.",
+    }
+
+
 def test_structure_field_requires_app_id_for_mutation_when_auto_backup_enabled() -> None:
     client = RecordingClient([FakeResponse({"id": 7, "label": "Total"})])
     client.auto_backup = True
@@ -137,6 +150,15 @@ def test_structure_field_requires_app_id_for_mutation_when_auto_backup_enabled()
     field.update({"label": "Total"})
 
     assert client.calls[0]["app_id_for_backup"] == "app1"
+
+
+def test_structure_field_update_maps_description_to_field_help() -> None:
+    client = RecordingClient([FakeResponse({"id": 7, "label": "Total"})])
+    field = StructureField(cast(Any, client), table_id="table1", field_id=7, app_id="app1")
+
+    field.update({"description": "Calculated total."})
+
+    assert client.calls[0]["payload"] == {"fieldHelp": "Calculated total."}
 
 
 def test_relationship_wrapper_updates_and_deletes() -> None:

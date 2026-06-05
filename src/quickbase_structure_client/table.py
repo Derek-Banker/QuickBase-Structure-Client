@@ -11,6 +11,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def normalize_field_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(payload)
+    if "description" in normalized and "fieldHelp" not in normalized:
+        normalized["fieldHelp"] = normalized.pop("description")
+    return normalized
+
+
 class StructureTable:
     """Ref-like wrapper representing a Quickbase table structure."""
 
@@ -126,7 +133,7 @@ class StructureTable:
             "fieldType": field_type,
         }
         if properties:
-            payload.update(properties)
+            payload.update(normalize_field_payload(properties))
 
         response = self.api_client.request(
             method="POST",
@@ -157,7 +164,7 @@ class StructureTable:
         response = self.api_client.request(
             method="POST",
             endpoint=f"/fields/{field_id}?tableId={self._id}",
-            payload=properties,
+            payload=normalize_field_payload(properties),
             app_id_for_backup=app_id,
         )
         return response.json()

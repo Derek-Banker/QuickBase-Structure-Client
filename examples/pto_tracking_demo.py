@@ -275,31 +275,31 @@ def run_demo(config: DemoConfig) -> DemoResult:
     user_fields = _create_fields(
         users,
         [
-            ("Employee Name", "text", {"description": "Display name for the employee."}),
-            ("Email", "email", {"description": "Employee email address."}),
-            ("Manager", "user", {"description": "Employee manager."}),
-            ("Department", "text", {"description": "Department or team."}),
+            ("Employee Name", "text", {"fieldHelp": "Display name for the employee."}),
+            ("Email", "email", {"fieldHelp": "Employee email address."}),
+            ("Manager", "user", {"fieldHelp": "Employee manager."}),
+            ("Department", "text", {"fieldHelp": "Department or team."}),
             (
                 "PTO Balance Hours",
                 "numeric",
-                {"description": "Current available PTO balance in hours."},
+                {"fieldHelp": "Current available PTO balance in hours."},
             ),
         ],
     )
     _create_fields(
         events,
         [
-            ("Start Date", "date", {"description": "First day out."}),
-            ("End Date", "date", {"description": "Last day out."}),
-            ("PTO Type", "text", {"description": "Vacation, sick, personal, or other."}),
-            ("Status", "text", {"description": "Requested, approved, denied, or cancelled."}),
-            ("Hours Requested", "numeric", {"description": "Requested PTO hours."}),
-            ("Notes", "text", {"description": "Requester or approver notes."}),
+            ("Start Date", "date", {"fieldHelp": "First day out."}),
+            ("End Date", "date", {"fieldHelp": "Last day out."}),
+            ("PTO Type", "text", {"fieldHelp": "Vacation, sick, personal, or other."}),
+            ("Status", "text", {"fieldHelp": "Requested, approved, denied, or cancelled."}),
+            ("Hours Requested", "numeric", {"fieldHelp": "Requested PTO hours."}),
+            ("Notes", "text", {"fieldHelp": "Requester or approver notes."}),
             (
                 "Requested Days",
-                "formula-numeric",
+                "numeric",
                 {
-                    "description": "Calendar-day span for the PTO request.",
+                    "fieldHelp": "Calendar-day span for the PTO request.",
                     "properties": {"formula": "ToDays([End Date] - [Start Date]) + 1"},
                 },
             ),
