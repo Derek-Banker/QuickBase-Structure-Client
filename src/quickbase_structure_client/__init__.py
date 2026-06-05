@@ -1,26 +1,32 @@
 from __future__ import annotations
 
-from .quickbase_api import Auth, QuickBaseStructureClient, RequestConfig
 from .app import StructureApp
-from .field import StructureField
-from .relationship import StructureRelationship
-from .table import StructureTable
-from .trustees import TrusteesManager
 from .exceptions import (
     QuickbaseAuthError,
+    QuickbaseBackupError,
     QuickbaseConfigurationError,
     QuickbaseError,
     QuickbaseHTTPError,
     QuickbaseNotFoundError,
+    QuickbasePayloadError,
     QuickbaseRateLimitError,
     QuickbaseSchemaError,
     QuickbaseTransportError,
     QuickbaseValidationError,
-    QuickbaseBackupError,
-    QuickbasePayloadError,
 )
+from .field import StructureField
+from .quickbase_api import (
+    Auth,
+    QuickBaseStructureClient,
+    RequestConfig,
+    normalize_realm_hostname,
+    normalize_user_token,
+)
+from .relationship import StructureRelationship
 from .schema_exporter import SchemaExporter
 from .solutions import SolutionsManager
+from .table import StructureTable
+from .trustees import TrusteesManager
 
 __version__ = "0.1.0"
 
@@ -29,6 +35,8 @@ __all__ = [
     "Auth",
     "QuickBaseStructureClient",
     "RequestConfig",
+    "normalize_realm_hostname",
+    "normalize_user_token",
     "StructureApp",
     "StructureTable",
     "StructureField",

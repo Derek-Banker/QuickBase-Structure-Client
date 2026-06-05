@@ -5,7 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -118,11 +118,12 @@ def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfi
             "Real QUICKBASE_REALM_HOSTNAME and QUICKBASE_USER_TOKEN values are required."
         )
 
-    backup_method = _env_value(env_file_values, "QUICKBASE_DEMO_BACKUP_METHOD", "schema")
-    if backup_method not in {"schema", "clone"}:
+    backup_method_value = _env_value(env_file_values, "QUICKBASE_DEMO_BACKUP_METHOD", "schema")
+    if backup_method_value not in {"schema", "clone"}:
         raise DemoConfigurationError(
             "QUICKBASE_DEMO_BACKUP_METHOD must be either 'schema' or 'clone'."
         )
+    backup_method = cast(BackupMethod, backup_method_value)
 
     return DemoConfig(
         realm_hostname=realm_hostname or "example.quickbase.com",
@@ -258,7 +259,7 @@ def run_demo(config: DemoConfig) -> DemoResult:
             ),
         ],
     )
-    event_fields = _create_fields(
+    _create_fields(
         events,
         [
             ("Start Date", "date", {"description": "First day out."}),

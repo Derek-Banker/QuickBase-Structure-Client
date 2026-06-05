@@ -11,9 +11,28 @@ from quickbase_structure_client.quickbase_api import (
     Auth,
     QuickBaseStructureClient,
     RequestConfig,
+    normalize_realm_hostname,
+    normalize_user_token,
 )
 
 from .conftest import FakeResponse
+
+
+def test_auth_normalizes_realm_hostname_and_user_token_prefix() -> None:
+    auth = Auth(
+        "https://example.quickbase.com/",
+        "  QB-USER-TOKEN abc123  ",
+    )
+
+    assert auth.realm == "example.quickbase.com"
+    assert auth.user_token == "abc123"
+    assert auth.headers["QB-Realm-Hostname"] == "example.quickbase.com"
+    assert auth.headers["Authorization"] == "QB-USER-TOKEN abc123"
+
+
+def test_auth_normalization_helpers_are_available() -> None:
+    assert normalize_realm_hostname("http://example.quickbase.com/") == "example.quickbase.com"
+    assert normalize_user_token("qb-user-token token-value") == "token-value"
 
 
 def test_request_retries_retryable_status_and_passes_extra_headers(monkeypatch) -> None:

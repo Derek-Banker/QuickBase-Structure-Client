@@ -91,6 +91,13 @@ python examples/pto_tracking_demo.py --env-file .env --execute
 You can also set `QUICKBASE_DEMO_EXECUTE=true` in `.env`. The script refuses to
 execute with placeholder credentials from `.env.example`.
 
+If Quickbase returns `User token is invalid`, verify that:
+
+- `QUICKBASE_REALM_HOSTNAME` is the same realm where the token was generated.
+- `QUICKBASE_USER_TOKEN` is a user token, not an app token.
+- The value has no quotes, comments, or copied label text around it.
+- The token's user has permission to create apps in that realm.
+
 ## Supported Surface
 
 - Core sync client: `QuickBaseStructureClient`

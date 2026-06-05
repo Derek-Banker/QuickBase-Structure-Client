@@ -41,6 +41,10 @@ class SchemaExporter:
 
         for table_info in app_ref.list_tables():
             table_id = table_info.get("id")
+            if table_id is None:
+                logger.warning("Skipping table without an id while exporting app %s.", app_id)
+                continue
+            table_id = str(table_id)
             table_schema: Dict[str, Any] = {
                 "id": table_id,
                 "name": table_info.get("name"),

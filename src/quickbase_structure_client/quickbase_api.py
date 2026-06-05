@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Callable, Dict, Iterator, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Literal, Mapping
 
 import requests
 
@@ -27,9 +27,12 @@ from quickbase_structure_client.exceptions import (
     QuickbaseNotFoundError,
     QuickbaseRateLimitError,
     QuickbaseTransportError,
-    QuickbaseValidationError,
     format_error_message,
 )
+
+if TYPE_CHECKING:
+    from quickbase_structure_client.app import StructureApp
+    from quickbase_structure_client.table import StructureTable
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,7 @@ MAX_ERROR_BODY_CHARS = 500
 RequestTimeout = float | tuple[float, float]
 RequestLogHook = Callable[[dict[str, Any]], None]
 JsonPayload = Dict[str, Any] | list[Any]
+USER_TOKEN_AUTH_PREFIX = "QB-USER-TOKEN"
 
 
 def _normalize_timeout(timeout: RequestTimeout) -> RequestTimeout:
@@ -206,6 +210,17 @@ def assemble_user_agent(cfg: Dict[str, str]) -> str:
     return sep.join(parts)
 
 
+def normalize_realm_hostname(realm: str) -> str:
+    return realm.strip().removeprefix("https://").removeprefix("http://").strip("/")
+
+
+def normalize_user_token(user_token: str) -> str:
+    token = user_token.strip()
+    if token.upper().startswith(USER_TOKEN_AUTH_PREFIX):
+        token = token[len(USER_TOKEN_AUTH_PREFIX) :].strip()
+    return token
+
+
 class Auth:
     """Encapsulates realm + user token and user-agent settings."""
 
@@ -216,8 +231,8 @@ class Auth:
         *,
         user_agent: Dict[str, str] | None = None,
     ):
-        self.realm = realm
-        self.user_token = user_token
+        self.realm = normalize_realm_hostname(realm)
+        self.user_token = normalize_user_token(user_token)
         self._user_agent = assemble_user_agent(user_agent or {})
 
     @property
@@ -232,7 +247,7 @@ class Auth:
     def headers(self) -> Dict[str, str]:
         return {
             "QB-Realm-Hostname": self.realm,
-            "Authorization": f"QB-USER-TOKEN {self.user_token}",
+            "Authorization": f"{USER_TOKEN_AUTH_PREFIX} {self.user_token}",
             "Content-Type": "application/json",
             "User-Agent": self.user_agent,
         }
@@ -277,8 +292,8 @@ class QuickBaseStructureClient:
 
         # Late import binding of sub-components
         from quickbase_structure_client.app import StructureApp
-        from quickbase_structure_client.solutions import SolutionsManager
         from quickbase_structure_client.schema_exporter import SchemaExporter
+        from quickbase_structure_client.solutions import SolutionsManager
         from quickbase_structure_client.tools.backup_manager import BackupManager
         from quickbase_structure_client.trustees import TrusteesManager
 
@@ -299,7 +314,7 @@ class QuickBaseStructureClient:
         *,
         app_id: str | None = None,
         name: str | None = None,
-    ):
+    ) -> StructureTable:
         """Get a reference to a specific table."""
         from quickbase_structure_client.table import StructureTable
 
@@ -573,20 +588,17 @@ class QuickBaseStructureClient:
         """Sends a raw HTTP request and returns the requests.Response."""
 
         backup_state = None
-        should_backup = (
+        if (
             self._backup_suppression_depth == 0
-            and app_id_for_backup
+            and app_id_for_backup is not None
             and method in {"POST", "PUT", "DELETE"}
-        )
-        if should_backup:
+        ):
             backup_state = self.backup_manager.trigger_pre_backup(app_id_for_backup)
 
         url = f"{self.base_url}{endpoint}"
-        attempts = 0
         terminal_response = None
 
         for attempt in range(1, self.request_config.retry_count + 2):
-            attempts = attempt
             self._log_request(
                 method=method,
                 endpoint=endpoint,
