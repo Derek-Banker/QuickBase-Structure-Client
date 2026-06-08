@@ -136,6 +136,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Demo runtime artifacts
+demo_exports/
+demo_backups/
+
 # Spyder project settings
 .spyderproject
 .spyproject
