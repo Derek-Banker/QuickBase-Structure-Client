@@ -161,6 +161,23 @@ def test_structure_field_update_maps_description_to_field_help() -> None:
     assert client.calls[0]["payload"] == {"fieldHelp": "Calculated total."}
 
 
+def test_field_deletes_use_documented_field_ids_object() -> None:
+    response = {"deletedFieldIds": [7, 8], "errors": []}
+    client = RecordingClient([FakeResponse(response), FakeResponse(response)])
+    table = StructureTable(cast(Any, client), id="table1", app_id="app1")
+    field = StructureField(
+        cast(Any, client),
+        table_id="table1",
+        field_id=7,
+        app_id="app1",
+    )
+
+    assert table.delete_fields([7, "8"]) == response
+    assert field.delete() == response
+    assert client.calls[0]["payload"] == {"fieldIds": [7, 8]}
+    assert client.calls[1]["payload"] == {"fieldIds": [7]}
+
+
 def test_relationship_wrapper_updates_and_deletes() -> None:
     client = RecordingClient([FakeResponse({"id": 2}), FakeResponse({"deleted": [2]})])
     relationship = StructureRelationship(
@@ -179,22 +196,48 @@ def test_relationship_wrapper_updates_and_deletes() -> None:
     assert client.calls[1]["endpoint"] == "/tables/child/relationship/2"
 
 
-def test_trustees_manager_uses_apps_path_and_list_payloads() -> None:
+def test_trustees_manager_uses_documented_path_methods_and_payloads() -> None:
     client = RecordingClient([FakeResponse({"ok": True})])
     manager = TrusteesManager(cast(Any, client))
-    trustees = [{"id": "user@example.com", "type": "user", "roleId": 12}]
+    added = [{"id": "user@example.com", "type": "user", "roleId": 12}]
+    updated = [
+        {
+            "id": "user@example.com",
+            "type": "user",
+            "roleId": 12,
+            "oldRoleId": 10,
+        }
+    ]
 
-    manager.add_trustees("app1", trustees)
-    manager.update_trustees("app1", trustees)
-    manager.remove_trustees("app1", [{"id": "user@example.com", "type": "user"}])
+    manager.add_trustees("app1", added)
+    manager.update_trustees("app1", updated)
+    manager.remove_trustees("app1", added)
 
     assert client.calls[0] == {
         "method": "POST",
-        "endpoint": "/apps/app1/trustees",
-        "payload": trustees,
+        "endpoint": "/app/app1/trustees",
+        "payload": added,
         "app_id_for_backup": "app1",
     }
-    assert client.calls[1]["method"] == "PUT"
-    assert client.calls[1]["endpoint"] == "/apps/app1/trustees"
+    assert client.calls[1]["method"] == "PATCH"
+    assert client.calls[1]["endpoint"] == "/app/app1/trustees"
+    assert client.calls[1]["payload"] == updated
     assert client.calls[2]["method"] == "DELETE"
-    assert client.calls[2]["payload"] == [{"id": "user@example.com", "type": "user"}]
+    assert client.calls[2]["endpoint"] == "/app/app1/trustees"
+    assert client.calls[2]["payload"] == added
+
+
+def test_trustees_manager_rejects_missing_documented_fields() -> None:
+    manager = TrusteesManager(cast(Any, RecordingClient()))
+
+    with pytest.raises(QuickbaseValidationError, match="missing required fields"):
+        manager.remove_trustees(
+            "app1",
+            [{"id": "user@example.com", "type": "user"}],
+        )
+
+    with pytest.raises(QuickbaseValidationError, match="oldRoleId"):
+        manager.update_trustees(
+            "app1",
+            [{"id": "user@example.com", "type": "user", "roleId": 12}],
+        )

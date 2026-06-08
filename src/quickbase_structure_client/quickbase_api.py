@@ -56,6 +56,7 @@ MAX_ERROR_BODY_CHARS = 500
 RequestTimeout = float | tuple[float, float]
 RequestLogHook = Callable[[dict[str, Any]], None]
 JsonPayload = Dict[str, Any] | list[Any]
+RequestPayload = JsonPayload | str | bytes
 USER_TOKEN_AUTH_PREFIX = "QB-USER-TOKEN"
 
 
@@ -397,11 +398,15 @@ class QuickBaseStructureClient:
         return sanitized
 
     @staticmethod
-    def _summarize_payload(payload: JsonPayload | None) -> Dict[str, Any] | None:
+    def _summarize_payload(payload: RequestPayload | None) -> Dict[str, Any] | None:
         if payload is None:
             return None
         if isinstance(payload, list):
             return {"type": "list", "item_count": len(payload)}
+        if isinstance(payload, str):
+            return {"type": "str", "character_count": len(payload)}
+        if isinstance(payload, bytes):
+            return {"type": "bytes", "byte_count": len(payload)}
 
         summary: Dict[str, Any] = {
             "type": type(payload).__name__,
@@ -438,7 +443,7 @@ class QuickBaseStructureClient:
         method: str,
         endpoint: str,
         url: str,
-        payload: JsonPayload | None,
+        payload: RequestPayload | None,
         headers: Mapping[str, Any] | None,
         attempt: int,
     ) -> None:
@@ -589,9 +594,9 @@ class QuickBaseStructureClient:
     def request(
         self,
         *,
-        method: Literal["GET", "POST", "DELETE", "PUT"],
+        method: Literal["GET", "POST", "DELETE", "PUT", "PATCH"],
         endpoint: str,
-        payload: JsonPayload | None = None,
+        payload: RequestPayload | None = None,
         headers: Mapping[str, str] | None = None,
         app_id_for_backup: str | None = None,
     ) -> requests.Response:
@@ -601,7 +606,7 @@ class QuickBaseStructureClient:
         if (
             self._backup_suppression_depth == 0
             and app_id_for_backup is not None
-            and method in {"POST", "PUT", "DELETE"}
+            and method in {"POST", "PUT", "PATCH", "DELETE"}
         ):
             backup_state = self.backup_manager.trigger_pre_backup(app_id_for_backup)
 
@@ -618,12 +623,18 @@ class QuickBaseStructureClient:
                 attempt=attempt,
             )
             try:
+                request_body: Dict[str, Any] = {}
+                if isinstance(payload, (str, bytes)):
+                    request_body["data"] = payload
+                elif payload is not None:
+                    request_body["json"] = payload
+
                 response = self.session.request(
                     method,
                     url,
-                    json=payload if payload is not None else None,
                     headers=dict(headers) if headers else None,
                     timeout=self.request_config.timeout,
+                    **request_body,
                 )
                 will_retry = (
                     attempt <= self.request_config.retry_count

@@ -221,28 +221,28 @@ class StructureApp:
 
     # TRUSTEE MANAGEMENT
     def get_trustees(self) -> Dict[str, Any]:
-        """Get trustees for the application via GET /v1/apps/{appId}/trustees."""
+        """Get trustees for the application via GET /v1/app/{appId}/trustees."""
         app_id = self._require_id("StructureApp.get_trustees")
         from quickbase_structure_client.trustees import TrusteesManager
 
         return TrusteesManager(self.api_client).get_trustees(app_id)
 
     def add_trustees(self, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Add trustees to the application via POST /v1/apps/{appId}/trustees."""
+        """Add trustees to the application via POST /v1/app/{appId}/trustees."""
         app_id = self._require_id("StructureApp.add_trustees")
         from quickbase_structure_client.trustees import TrusteesManager
 
         return TrusteesManager(self.api_client).add_trustees(app_id, trustees)
 
     def update_trustees(self, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Update trustees of the application via POST /v1/apps/{appId}/trustees."""
+        """Update trustees of the application via PATCH /v1/app/{appId}/trustees."""
         app_id = self._require_id("StructureApp.update_trustees")
         from quickbase_structure_client.trustees import TrusteesManager
 
         return TrusteesManager(self.api_client).update_trustees(app_id, trustees)
 
     def remove_trustees(self, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Remove trustees from the application via DELETE /v1/apps/{appId}/trustees."""
+        """Remove trustees from the application via DELETE /v1/app/{appId}/trustees."""
         app_id = self._require_id("StructureApp.remove_trustees")
         from quickbase_structure_client.trustees import TrusteesManager
 

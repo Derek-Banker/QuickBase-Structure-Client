@@ -169,10 +169,10 @@ class StructureTable:
         )
         return response.json()
 
-    def delete_fields(self, field_ids: List[int | str]) -> List[int]:
-        """Delete field(s) via DELETE /v1/fields?tableId={tableId} with list of field IDs."""
+    def delete_fields(self, field_ids: List[int | str]) -> Dict[str, Any]:
+        """Delete field(s) via DELETE /v1/fields?tableId={tableId}."""
         app_id = self._require_app_id("StructureTable.delete_fields")
-        payload = [int(fid) for fid in field_ids]
+        payload = {"fieldIds": [int(fid) for fid in field_ids]}
         response = self.api_client.request(
             method="DELETE",
             endpoint=f"/fields?tableId={self._id}",

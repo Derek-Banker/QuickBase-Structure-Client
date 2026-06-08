@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
+from quickbase_structure_client.exceptions import QuickbaseSchemaError, format_error_message
+
 if TYPE_CHECKING:
     from quickbase_structure_client.quickbase_api import QuickBaseStructureClient
 
@@ -42,8 +44,14 @@ class SchemaExporter:
         for table_info in app_ref.list_tables():
             table_id = table_info.get("id")
             if table_id is None:
-                logger.warning("Skipping table without an id while exporting app %s.", app_id)
-                continue
+                raise QuickbaseSchemaError(
+                    format_error_message(
+                        "Quickbase returned a table without an ID.",
+                        operation="SchemaExporter.compile_schema",
+                        app_id=app_id,
+                        table=table_info,
+                    )
+                )
             table_id = str(table_id)
             table_schema: Dict[str, Any] = {
                 "id": table_id,
@@ -64,12 +72,25 @@ class SchemaExporter:
                             "label": field_info.get("label"),
                             "type": field_info.get("fieldType"),
                             "formula": properties.get("formula"),
-                            "unique": properties.get("unique", False),
-                            "required": properties.get("required", False),
+                            "unique": field_info.get(
+                                "unique",
+                                properties.get("unique", False),
+                            ),
+                            "required": field_info.get(
+                                "required",
+                                properties.get("required", False),
+                            ),
                         }
                     )
             except Exception as exc:
-                logger.error("Failed to fetch fields for table %s: %s", table_id, exc)
+                raise QuickbaseSchemaError(
+                    format_error_message(
+                        "Failed to fetch fields while compiling the schema.",
+                        operation="SchemaExporter.compile_schema",
+                        app_id=app_id,
+                        table_id=table_id,
+                    )
+                ) from exc
 
             try:
                 for relationship in table_ref.list_relationships():
@@ -83,7 +104,14 @@ class SchemaExporter:
                         }
                     )
             except Exception as exc:
-                logger.debug("Failed to fetch relationships for table %s: %s", table_id, exc)
+                raise QuickbaseSchemaError(
+                    format_error_message(
+                        "Failed to fetch relationships while compiling the schema.",
+                        operation="SchemaExporter.compile_schema",
+                        app_id=app_id,
+                        table_id=table_id,
+                    )
+                ) from exc
 
             schema["tables"].append(table_schema)
 

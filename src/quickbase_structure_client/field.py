@@ -128,7 +128,7 @@ class StructureField:
         response = self.api_client.request(
             method="DELETE",
             endpoint=f"/fields?tableId={self._table_id}",
-            payload=[int(field_id)],
+            payload={"fieldIds": [int(field_id)]},
             app_id_for_backup=self._backup_app_id("StructureField.delete"),
         )
         self._field_id = None

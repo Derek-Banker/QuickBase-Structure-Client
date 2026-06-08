@@ -18,8 +18,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "numpy",
-    "pandas",
     "requests",
 ]
 

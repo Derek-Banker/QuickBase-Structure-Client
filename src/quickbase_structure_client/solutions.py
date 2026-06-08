@@ -43,25 +43,33 @@ class SolutionsManager:
         )
         return response.text
 
-    def create_solution(self, name: str, apps: list[Dict[str, Any]]) -> Dict[str, Any]:
+    def create_solution(
+        self,
+        qbl: str,
+        *,
+        errors_as_success: bool = False,
+    ) -> Dict[str, Any]:
         """
-        Create a Quickbase solution definition.
+        Create a Quickbase solution from a QBL document.
         POST /v1/solutions
         """
-        if not name or not apps:
+        if not isinstance(qbl, str) or not qbl.strip():
             raise QuickbaseValidationError(
                 format_error_message(
-                    "name and apps are required to create a solution.",
+                    "A non-empty QBL document is required to create a solution.",
                     operation="SolutionsManager.create_solution",
-                    name=name,
-                    apps=apps,
                 )
             )
+
+        headers = {"Content-Type": "application/x-yaml"}
+        if errors_as_success:
+            headers["X-QBL-Errors-As-Success"] = "true"
 
         response = self.api_client.request(
             method="POST",
             endpoint="/solutions",
-            payload={"name": name, "apps": apps},
+            payload=qbl,
+            headers=headers,
         )
         return response.json()
 

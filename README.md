@@ -45,6 +45,17 @@ schema = client.exporter.compile_schema(app.id)
 print(client.exporter.to_markdown(schema))
 ```
 
+## Solutions / QBL
+
+Solution creation accepts the raw QBL document required by Quickbase:
+
+```python
+from pathlib import Path
+
+qbl = Path("solution.qbl").read_text(encoding="utf-8")
+result = client.solutions.create_solution(qbl)
+```
+
 ## Auto Backup
 
 `auto_backup=True` is the default. Mutating app/table/field/relationship/trustee

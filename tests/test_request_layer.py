@@ -124,7 +124,7 @@ def test_request_logging_hooks_redact_auth_and_summarize_payload(monkeypatch) ->
 
     api.request(
         method="POST",
-        endpoint="/apps/app1/trustees",
+        endpoint="/app/app1/trustees",
         payload=[{"id": "user@example.com", "type": "user"}],
     )
 
@@ -132,6 +132,35 @@ def test_request_logging_hooks_redact_auth_and_summarize_payload(monkeypatch) ->
     assert request_events[0]["payload_summary"] == {"type": "list", "item_count": 1}
     assert "secret-token" not in repr(request_events[0])
     assert response_events[0]["will_retry"] is False
+
+
+def test_request_sends_string_payload_as_raw_data(monkeypatch) -> None:
+    request_events: list[dict] = []
+    api = QuickBaseStructureClient(
+        Auth("example.quickbase.com", "token"),
+        request_config=RequestConfig(
+            retry_count=0,
+            request_log_hook=request_events.append,
+        ),
+        auto_backup=False,
+    )
+    request_mock = Mock(return_value=FakeResponse({"id": "solution1"}))
+    monkeypatch.setattr(api.session, "request", request_mock)
+    qbl = "Version: 0.2\nResources: {}\n"
+
+    api.request(
+        method="POST",
+        endpoint="/solutions",
+        payload=qbl,
+        headers={"Content-Type": "application/x-yaml"},
+    )
+
+    assert request_mock.call_args.kwargs["data"] == qbl
+    assert "json" not in request_mock.call_args.kwargs
+    assert request_events[0]["payload_summary"] == {
+        "type": "str",
+        "character_count": len(qbl),
+    }
 
 
 def test_clone_backup_is_suppressed_during_backup_operations(monkeypatch) -> None:

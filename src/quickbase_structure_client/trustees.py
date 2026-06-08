@@ -32,6 +32,8 @@ class TrusteesManager:
     def _validate_trustees(
         trustees: List[Dict[str, Any]],
         operation: str,
+        *,
+        required_keys: frozenset[str],
     ) -> List[Dict[str, Any]]:
         if not isinstance(trustees, list) or not trustees:
             raise QuickbaseValidationError(
@@ -51,48 +53,77 @@ class TrusteesManager:
                     invalid=invalid,
                 )
             )
+
+        missing_keys = [
+            {
+                "index": index,
+                "missing": sorted(required_keys.difference(trustee)),
+            }
+            for index, trustee in enumerate(trustees)
+            if required_keys.difference(trustee)
+        ]
+        if missing_keys:
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "Each trustee payload is missing required fields.",
+                    operation=operation,
+                    missing=missing_keys,
+                )
+            )
         return trustees
 
     def get_trustees(self, app_id: str) -> Dict[str, Any]:
-        """Get trustees for the application via GET /v1/apps/{appId}/trustees."""
+        """Get trustees for the application via GET /v1/app/{appId}/trustees."""
         app_id = self._require_app_id(app_id, "TrusteesManager.get_trustees")
         response = self.api_client.request(
             method="GET",
-            endpoint=f"/apps/{app_id}/trustees",
+            endpoint=f"/app/{app_id}/trustees",
         )
         return response.json()
 
     def add_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Add trustees via POST /v1/apps/{appId}/trustees."""
+        """Add trustees via POST /v1/app/{appId}/trustees."""
         app_id = self._require_app_id(app_id, "TrusteesManager.add_trustees")
-        payload = self._validate_trustees(trustees, "TrusteesManager.add_trustees")
+        payload = self._validate_trustees(
+            trustees,
+            "TrusteesManager.add_trustees",
+            required_keys=frozenset({"id", "type", "roleId"}),
+        )
         response = self.api_client.request(
             method="POST",
-            endpoint=f"/apps/{app_id}/trustees",
+            endpoint=f"/app/{app_id}/trustees",
             payload=payload,
             app_id_for_backup=app_id,
         )
         return response.json()
 
     def update_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Update trustees via PUT /v1/apps/{appId}/trustees."""
+        """Update trustees via PATCH /v1/app/{appId}/trustees."""
         app_id = self._require_app_id(app_id, "TrusteesManager.update_trustees")
-        payload = self._validate_trustees(trustees, "TrusteesManager.update_trustees")
+        payload = self._validate_trustees(
+            trustees,
+            "TrusteesManager.update_trustees",
+            required_keys=frozenset({"id", "type", "roleId", "oldRoleId"}),
+        )
         response = self.api_client.request(
-            method="PUT",
-            endpoint=f"/apps/{app_id}/trustees",
+            method="PATCH",
+            endpoint=f"/app/{app_id}/trustees",
             payload=payload,
             app_id_for_backup=app_id,
         )
         return response.json()
 
     def remove_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Remove trustees via DELETE /v1/apps/{appId}/trustees."""
+        """Remove trustees via DELETE /v1/app/{appId}/trustees."""
         app_id = self._require_app_id(app_id, "TrusteesManager.remove_trustees")
-        payload = self._validate_trustees(trustees, "TrusteesManager.remove_trustees")
+        payload = self._validate_trustees(
+            trustees,
+            "TrusteesManager.remove_trustees",
+            required_keys=frozenset({"id", "type", "roleId"}),
+        )
         response = self.api_client.request(
             method="DELETE",
-            endpoint=f"/apps/{app_id}/trustees",
+            endpoint=f"/app/{app_id}/trustees",
             payload=payload,
             app_id_for_backup=app_id,
         )
