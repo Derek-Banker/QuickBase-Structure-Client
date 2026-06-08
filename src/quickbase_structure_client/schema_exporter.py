@@ -1,3 +1,5 @@
+"""Utilities for exporting Quickbase application schemas."""
+
 from __future__ import annotations
 
 import json
@@ -14,20 +16,50 @@ logger = logging.getLogger(__name__)
 
 
 class SchemaExporter:
-    """Export Quickbase application schemas as JSON or Markdown."""
+    """Export Quickbase application schemas as JSON or Markdown.
 
-    def __init__(self, api_client: QuickBaseStructureClient):
+    Attributes:
+        api_client: Client used to retrieve Quickbase schema information.
+    """
+
+    def __init__(self, api_client: QuickBaseStructureClient) -> None:
+        """Initialize the schema exporter.
+
+        Args:
+            api_client: Client used to execute API requests.
+        """
         self.api_client = api_client
 
     @staticmethod
     def _markdown_cell(value: Any) -> str:
+        """Escape a value for use in a Markdown table cell.
+
+        Args:
+            value: Value to render.
+
+        Returns:
+            A Markdown-safe string.
+        """
         if value is None:
             return ""
         return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
     def compile_schema(self, app_id: str) -> Dict[str, Any]:
-        """
-        Compile app details, tables, fields, formulas, and child-table relationships.
+        """Compile an application's structural schema.
+
+        The compiled schema contains application metadata, tables, fields,
+        formulas, and relationships for which each table is the child.
+
+        Args:
+            app_id: Quickbase application ID.
+
+        Returns:
+            A dictionary containing the compiled application schema.
+
+        Raises:
+            QuickbaseSchemaError: If Quickbase returns invalid table metadata,
+                or if fields or relationships cannot be retrieved.
+            QuickbaseError: If application or table retrieval fails.
         """
         logger.info("Compiling schema structure for app: %s", app_id)
 
@@ -118,7 +150,19 @@ class SchemaExporter:
         return schema
 
     def to_json(self, schema: Dict[str, Any], filepath: str | Path | None = None) -> str:
-        """Serialize compiled schema to a pretty-printed JSON string and optionally a file."""
+        """Serialize a compiled schema as pretty-printed JSON.
+
+        Args:
+            schema: Schema produced by :meth:`compile_schema`.
+            filepath: Optional destination file path.
+
+        Returns:
+            The serialized JSON document.
+
+        Raises:
+            TypeError: If the schema contains values that cannot be serialized.
+            OSError: If the destination directory or file cannot be written.
+        """
         json_str = json.dumps(schema, indent=2, ensure_ascii=False)
         if filepath:
             path = Path(filepath)
@@ -127,7 +171,19 @@ class SchemaExporter:
         return json_str
 
     def to_markdown(self, schema: Dict[str, Any], filepath: str | Path | None = None) -> str:
-        """Format a compiled schema as hierarchical Markdown."""
+        """Format a compiled schema as hierarchical Markdown.
+
+        Args:
+            schema: Schema produced by :meth:`compile_schema`.
+            filepath: Optional destination file path.
+
+        Returns:
+            The generated Markdown document.
+
+        Raises:
+            KeyError: If required schema collections are missing.
+            OSError: If the destination directory or file cannot be written.
+        """
         lines: List[str] = [
             f"# Quickbase App Schema: {schema.get('name')} (ID: {schema.get('app_id')})"
         ]

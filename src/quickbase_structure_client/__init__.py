@@ -1,3 +1,5 @@
+"""Public package interface for the Quickbase Structure Client."""
+
 from __future__ import annotations
 
 from .app import StructureApp

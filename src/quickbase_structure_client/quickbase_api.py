@@ -1,3 +1,5 @@
+"""Authentication, request configuration, and HTTP client implementation."""
+
 from __future__ import annotations
 
 import logging
@@ -61,6 +63,17 @@ USER_TOKEN_AUTH_PREFIX = "QB-USER-TOKEN"
 
 
 def _normalize_timeout(timeout: RequestTimeout) -> RequestTimeout:
+    """Validate and normalize a requests-compatible timeout.
+
+    Args:
+        timeout: Positive total timeout or ``(connect, read)`` timeout pair.
+
+    Returns:
+        A positive float or normalized float pair.
+
+    Raises:
+        QuickbaseConfigurationError: If the timeout is invalid.
+    """
     if isinstance(timeout, bool):
         raise QuickbaseConfigurationError(
             format_error_message(
@@ -117,7 +130,22 @@ def _normalize_timeout(timeout: RequestTimeout) -> RequestTimeout:
 
 @dataclass(frozen=True)
 class RequestConfig:
-    """Configuration for QuickBase request timeout, retry, and logging behavior."""
+    """Configure request timeout, retry, and logging behavior.
+
+    Attributes:
+        timeout: Positive total timeout or ``(connect, read)`` timeout pair.
+        retry_count: Number of retries after the initial request.
+        retryable_status_codes: HTTP status codes that trigger a retry.
+        backoff_factor: Base delay, in seconds, for exponential backoff.
+        jitter: Maximum random delay, in seconds, added to backoff.
+        respect_retry_after: Whether to honor the ``Retry-After`` header.
+        request_log_hook: Optional callback receiving sanitized request events.
+        response_log_hook: Optional callback receiving sanitized response
+            events.
+
+    Raises:
+        QuickbaseConfigurationError: If any configuration value is invalid.
+    """
 
     timeout: RequestTimeout = DEFAULT_REQUEST_TIMEOUT
     retry_count: int = DEFAULT_RETRY_COUNT
@@ -131,6 +159,12 @@ class RequestConfig:
     response_log_hook: RequestLogHook | None = None
 
     def __post_init__(self) -> None:
+        """Validate and normalize the immutable request configuration.
+
+        Raises:
+            QuickbaseConfigurationError: If a timeout, retry, backoff, jitter,
+                status code collection, or log hook is invalid.
+        """
         object.__setattr__(self, "timeout", _normalize_timeout(self.timeout))
         try:
             retryable_status_codes = frozenset(self.retryable_status_codes)
@@ -202,6 +236,14 @@ class RequestConfig:
 
 
 def assemble_user_agent(cfg: Dict[str, str]) -> str:
+    """Build a user-agent string from default and custom components.
+
+    Args:
+        cfg: User-agent components overriding :data:`DEFAULT_USER_AGENT`.
+
+    Returns:
+        The assembled user-agent string.
+    """
     final = DEFAULT_USER_AGENT.copy()
     final.update(cfg or {})
     sep = final["Separator"]
@@ -212,10 +254,27 @@ def assemble_user_agent(cfg: Dict[str, str]) -> str:
 
 
 def normalize_realm_hostname(realm: str) -> str:
+    """Normalize a Quickbase realm to a bare hostname.
+
+    Args:
+        realm: Realm hostname or URL.
+
+    Returns:
+        The realm without an HTTP scheme, surrounding whitespace, or trailing
+        slashes.
+    """
     return realm.strip().removeprefix("https://").removeprefix("http://").strip("/")
 
 
 def normalize_user_token(user_token: str) -> str:
+    """Normalize a Quickbase user token.
+
+    Args:
+        user_token: Raw token, optionally prefixed with ``QB-USER-TOKEN``.
+
+    Returns:
+        The token without the authorization prefix or surrounding whitespace.
+    """
     token = user_token.strip()
     if token.upper().startswith(USER_TOKEN_AUTH_PREFIX):
         token = token[len(USER_TOKEN_AUTH_PREFIX) :].strip()
@@ -223,7 +282,12 @@ def normalize_user_token(user_token: str) -> str:
 
 
 class Auth:
-    """Encapsulates realm + user token and user-agent settings."""
+    """Store Quickbase authentication and user-agent settings.
+
+    Attributes:
+        realm: Normalized Quickbase realm hostname.
+        user_token: Normalized Quickbase user token.
+    """
 
     def __init__(
         self,
@@ -231,21 +295,36 @@ class Auth:
         user_token: str,
         *,
         user_agent: Dict[str, str] | None = None,
-    ):
+    ) -> None:
+        """Initialize Quickbase authentication.
+
+        Args:
+            realm: Quickbase realm hostname or URL.
+            user_token: Quickbase user token, with or without the
+                ``QB-USER-TOKEN`` prefix.
+            user_agent: Optional components overriding the default user agent.
+        """
         self.realm = normalize_realm_hostname(realm)
         self.user_token = normalize_user_token(user_token)
         self._user_agent = assemble_user_agent(user_agent or {})
 
     @property
     def user_agent(self) -> str:
+        """Return the assembled HTTP user-agent string."""
         return self._user_agent
 
     @user_agent.setter
-    def user_agent(self, cfg: Dict[str, str]):
+    def user_agent(self, cfg: Dict[str, str]) -> None:
+        """Replace user-agent components and rebuild the header value.
+
+        Args:
+            cfg: User-agent components overriding the defaults.
+        """
         self._user_agent = assemble_user_agent(cfg)
 
     @property
     def headers(self) -> Dict[str, str]:
+        """Return the default authenticated HTTP headers."""
         return {
             "QB-Realm-Hostname": self.realm,
             "Authorization": f"{USER_TOKEN_AUTH_PREFIX} {self.user_token}",
@@ -254,14 +333,35 @@ class Auth:
         }
 
     def session(self) -> requests.Session:
+        """Create an authenticated requests session.
+
+        Returns:
+            A new session populated with :attr:`headers`.
+        """
         session = requests.Session()
         session.headers.update(self.headers)
         return session
 
 
 class QuickBaseStructureClient:
-    """
-    Client for managing Quickbase app structures, tables, fields, trustees, and solutions.
+    """Manage Quickbase structures, trustees, solutions, and schema exports.
+
+    Attributes:
+        auth: Authentication settings used by the client.
+        base_url: Quickbase REST API base URL.
+        request_config: Timeout, retry, and logging configuration.
+        session: HTTP session used for requests.
+        auto_backup: Whether mutating requests trigger automatic backups.
+        backup_method: Backup strategy, either ``"schema"`` or ``"clone"``.
+        backup_solution_id: Solution ID used for QBL schema backups.
+        backup_dir: Directory used for local QBL backup files.
+        backup_fallback_to_clone: Whether failed schema backups fall back to
+            cloning the application.
+        app_manager: Application operation manager.
+        solutions: Quickbase Solutions API manager.
+        exporter: Application schema exporter.
+        backup_manager: Automatic backup manager.
+        trustees: Application trustee manager.
     """
 
     def __init__(
@@ -276,7 +376,23 @@ class QuickBaseStructureClient:
         backup_solution_id: str | None = None,
         backup_dir: str = "backups",
         backup_fallback_to_clone: bool = True,
-    ):
+    ) -> None:
+        """Initialize the Quickbase structure client.
+
+        Args:
+            auth: Quickbase authentication settings.
+            base_url: Base URL for Quickbase REST API requests.
+            request_config: Optional timeout, retry, and logging configuration.
+            session: Optional preconfigured HTTP session. Authentication
+                headers are added to the session.
+            auto_backup: Whether mutating requests should create pre-change and
+                post-change backups.
+            backup_method: Backup strategy, either ``"schema"`` or ``"clone"``.
+            backup_solution_id: Solution ID used for QBL schema backups.
+            backup_dir: Directory used for local QBL backup files.
+            backup_fallback_to_clone: Whether a failed schema backup should
+                fall back to cloning the application.
+        """
         self.auth = auth
         self.base_url = base_url.rstrip("/")
         self.request_config = request_config or RequestConfig()
@@ -305,8 +421,17 @@ class QuickBaseStructureClient:
         self.trustees = TrusteesManager(self)
 
     def app(self, id: str, name: str | None = None) -> StructureApp:
-        """Get a reference to a specific application."""
+        """Create a reference to a Quickbase application.
+
+        Args:
+            id: Quickbase application ID.
+            name: Optional application name.
+
+        Returns:
+            An application reference bound to this client.
+        """
         from quickbase_structure_client.app import StructureApp
+
         return StructureApp(self, id=id, name=name)
 
     def table(
@@ -316,7 +441,16 @@ class QuickBaseStructureClient:
         app_id: str | None = None,
         name: str | None = None,
     ) -> StructureTable:
-        """Get a reference to a specific table."""
+        """Create a reference to a Quickbase table.
+
+        Args:
+            id: Quickbase table ID.
+            app_id: Optional parent application ID.
+            name: Optional table name.
+
+        Returns:
+            A table reference bound to this client.
+        """
         from quickbase_structure_client.table import StructureTable
 
         return StructureTable(self, id=id, app_id=app_id, name=name)
@@ -328,7 +462,20 @@ class QuickBaseStructureClient:
         *,
         assign_token: bool = False,
     ) -> StructureApp:
-        """Create a new Quickbase application."""
+        """Create a Quickbase application.
+
+        Args:
+            name: Name of the application to create.
+            description: Optional application description.
+            assign_token: Whether Quickbase should assign the current user
+                token to the new application.
+
+        Returns:
+            A reference to the created application.
+
+        Raises:
+            QuickbaseError: If the Quickbase request fails.
+        """
         return self.app_manager.create(
             name=name,
             description=description,
@@ -344,7 +491,21 @@ class QuickBaseStructureClient:
         variables: list[dict[str, Any]] | None = None,
         properties: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Update an existing Quickbase application."""
+        """Update a Quickbase application.
+
+        Args:
+            app_id: Quickbase application ID.
+            name: New application name.
+            description: New application description.
+            variables: Application variable definitions.
+            properties: Additional properties accepted by the Quickbase API.
+
+        Returns:
+            The updated application payload returned by Quickbase.
+
+        Raises:
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         return self.app(id=app_id).update(
             name=name,
             description=description,
@@ -353,7 +514,17 @@ class QuickBaseStructureClient:
         )
 
     def delete_app(self, app_id: str, *, confirm_name: str) -> None:
-        """Delete a Quickbase application. Quickbase requires the app name as confirmation."""
+        """Delete a Quickbase application.
+
+        Args:
+            app_id: Quickbase application ID.
+            confirm_name: Application name required by Quickbase to confirm
+                deletion.
+
+        Raises:
+            QuickbaseValidationError: If ``confirm_name`` is empty.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         self.app(id=app_id, name=confirm_name).delete(confirm_name=confirm_name)
 
     def copy_app(
@@ -367,7 +538,24 @@ class QuickBaseStructureClient:
         users_and_roles: bool = True,
         assign_user_token: bool = False,
     ) -> StructureApp:
-        """Copy an existing Quickbase application."""
+        """Copy a Quickbase application.
+
+        Args:
+            app_id: Source application ID.
+            target_name: Name for the copied application.
+            description: Optional description for the copied application.
+            exclude_files: Whether to omit file attachments from the copy.
+            keep_data: Whether to retain table data in the copy.
+            users_and_roles: Whether to copy users and roles.
+            assign_user_token: Whether to assign the current user token to the
+                copied application.
+
+        Returns:
+            A reference to the copied application.
+
+        Raises:
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         return self.app(id=app_id).copy(
             target_name=target_name,
             description=description,
@@ -379,7 +567,14 @@ class QuickBaseStructureClient:
 
     @contextmanager
     def suppress_auto_backup(self) -> Iterator[None]:
-        """Temporarily suppress automatic backup hooks for internal backup calls."""
+        """Temporarily suppress automatic backup hooks.
+
+        This context manager is reentrant and is primarily used while creating
+        clone-based backups.
+
+        Yields:
+            ``None`` while backup hooks are suppressed.
+        """
         self._backup_suppression_depth += 1
         try:
             yield
@@ -388,6 +583,14 @@ class QuickBaseStructureClient:
 
     @staticmethod
     def _sanitize_headers(headers: Mapping[str, Any]) -> Dict[str, str]:
+        """Convert headers to strings and redact sensitive values.
+
+        Args:
+            headers: HTTP headers to sanitize.
+
+        Returns:
+            A string-valued header dictionary safe for logging.
+        """
         sanitized: Dict[str, str] = {}
         for key, value in headers.items():
             normalized_key = str(key)
@@ -399,6 +602,14 @@ class QuickBaseStructureClient:
 
     @staticmethod
     def _summarize_payload(payload: RequestPayload | None) -> Dict[str, Any] | None:
+        """Create a non-sensitive structural summary of a request payload.
+
+        Args:
+            payload: Request payload to summarize.
+
+        Returns:
+            A payload summary, or ``None`` when no payload is present.
+        """
         if payload is None:
             return None
         if isinstance(payload, list):
@@ -426,6 +637,13 @@ class QuickBaseStructureClient:
         event: dict[str, Any],
         hook_name: str,
     ) -> None:
+        """Invoke a request log hook without allowing hook failures to escape.
+
+        Args:
+            hook: Optional callback to invoke.
+            event: Sanitized request or response event.
+            hook_name: Hook name used in warning logs.
+        """
         if hook is None:
             return
         try:
@@ -447,6 +665,16 @@ class QuickBaseStructureClient:
         headers: Mapping[str, Any] | None,
         attempt: int,
     ) -> None:
+        """Log a sanitized outgoing request event.
+
+        Args:
+            method: HTTP method.
+            endpoint: API endpoint relative to :attr:`base_url`.
+            url: Fully qualified request URL.
+            payload: Optional request payload.
+            headers: Optional per-request headers.
+            attempt: One-based request attempt number.
+        """
         combined_headers: Dict[str, Any] = dict(self.session.headers)
         if headers:
             combined_headers.update(headers)
@@ -478,6 +706,17 @@ class QuickBaseStructureClient:
         will_retry: bool,
         retry_delay: float | None = None,
     ) -> None:
+        """Log a sanitized response event.
+
+        Args:
+            response: HTTP response received from Quickbase.
+            method: HTTP method.
+            endpoint: API endpoint relative to :attr:`base_url`.
+            url: Fully qualified request URL.
+            attempt: One-based request attempt number.
+            will_retry: Whether another request attempt will be made.
+            retry_delay: Planned delay before the next attempt, in seconds.
+        """
         retry_after_header = None
         headers = getattr(response, "headers", {}) or {}
         if isinstance(headers, Mapping):
@@ -508,6 +747,15 @@ class QuickBaseStructureClient:
 
     @staticmethod
     def _response_body_preview(response: requests.Response) -> str | None:
+        """Return a bounded response-body preview for error messages.
+
+        Args:
+            response: HTTP response to inspect.
+
+        Returns:
+            Response text truncated to :data:`MAX_ERROR_BODY_CHARS`, or
+            ``None`` when response text is unavailable.
+        """
         body = getattr(response, "text", None)
         if body is None:
             return None
@@ -518,6 +766,15 @@ class QuickBaseStructureClient:
 
     @staticmethod
     def _parse_retry_after(value: str | None) -> float | None:
+        """Parse an HTTP ``Retry-After`` value.
+
+        Args:
+            value: Header value expressed as seconds or an HTTP date.
+
+        Returns:
+            Non-negative delay in seconds, or ``None`` when the value cannot be
+            parsed.
+        """
         if not value:
             return None
         try:
@@ -539,6 +796,16 @@ class QuickBaseStructureClient:
         attempt: int,
         response: requests.Response | None = None,
     ) -> float:
+        """Compute the delay before a retry attempt.
+
+        Args:
+            attempt: One-based number of the failed attempt.
+            response: Optional response containing a ``Retry-After`` header.
+
+        Returns:
+            Delay in seconds, including configured exponential backoff and
+            jitter when no usable ``Retry-After`` value is present.
+        """
         if response is not None and self.request_config.respect_retry_after:
             headers = getattr(response, "headers", {}) or {}
             if isinstance(headers, Mapping):
@@ -559,6 +826,20 @@ class QuickBaseStructureClient:
         method: str,
         attempts: int,
     ) -> None:
+        """Raise the package exception corresponding to an HTTP response.
+
+        Args:
+            response: Unsuccessful terminal HTTP response.
+            endpoint: API endpoint relative to :attr:`base_url`.
+            method: HTTP method.
+            attempts: Total number of attempts made.
+
+        Raises:
+            QuickbaseAuthError: If Quickbase returns HTTP 401 or 403.
+            QuickbaseNotFoundError: If Quickbase returns HTTP 404.
+            QuickbaseRateLimitError: If Quickbase returns HTTP 429.
+            QuickbaseHTTPError: For other unsuccessful status codes.
+        """
         status_code = response.status_code
         response_body = self._response_body_preview(response)
         headers = getattr(response, "headers", {}) or {}
@@ -600,8 +881,33 @@ class QuickBaseStructureClient:
         headers: Mapping[str, str] | None = None,
         app_id_for_backup: str | None = None,
     ) -> requests.Response:
-        """Sends a raw HTTP request and returns the requests.Response."""
+        """Send an authenticated HTTP request to Quickbase.
 
+        Retryable responses and transport errors are retried according to
+        :attr:`request_config`. Mutating requests with ``app_id_for_backup``
+        trigger configured pre-change and post-change backups.
+
+        Args:
+            method: HTTP method.
+            endpoint: API endpoint beginning with ``/``.
+            payload: Optional JSON, text, or bytes request body.
+            headers: Optional per-request headers.
+            app_id_for_backup: Application ID to back up around a mutating
+                request.
+
+        Returns:
+            A successful Quickbase HTTP response.
+
+        Raises:
+            QuickbaseAuthError: If authentication or authorization fails.
+            QuickbaseNotFoundError: If the requested resource does not exist.
+            QuickbaseRateLimitError: If rate limiting persists after retries.
+            QuickbaseHTTPError: If another unsuccessful HTTP response is
+                received.
+            QuickbaseTransportError: If transport errors persist after retries
+                or no terminal response is produced.
+            QuickbaseBackupError: If an automatic backup fails.
+        """
         backup_state = None
         if (
             self._backup_suppression_depth == 0

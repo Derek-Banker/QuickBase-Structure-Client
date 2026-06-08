@@ -1,3 +1,5 @@
+"""Default configuration values for Quickbase API requests."""
+
 from typing import Final
 
 BASE_URL: Final[str] = "https://api.quickbase.com/v1"

@@ -1,3 +1,5 @@
+"""Quickbase table, field, and relationship structure operations."""
+
 from __future__ import annotations
 
 import logging
@@ -6,12 +8,25 @@ from typing import TYPE_CHECKING, Any, Dict, List
 from quickbase_structure_client.exceptions import QuickbaseValidationError, format_error_message
 
 if TYPE_CHECKING:
+    from quickbase_structure_client.field import StructureField
     from quickbase_structure_client.quickbase_api import QuickBaseStructureClient
+    from quickbase_structure_client.relationship import StructureRelationship
 
 logger = logging.getLogger(__name__)
 
 
 def normalize_field_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize convenience field properties for the Quickbase API.
+
+    ``description`` is accepted as an alias for Quickbase's ``fieldHelp``
+    property when ``fieldHelp`` is not already present.
+
+    Args:
+        payload: Field properties supplied by the caller.
+
+    Returns:
+        A shallow copy containing Quickbase-compatible property names.
+    """
     normalized = dict(payload)
     if "description" in normalized and "fieldHelp" not in normalized:
         normalized["fieldHelp"] = normalized.pop("description")
@@ -19,7 +34,11 @@ def normalize_field_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class StructureTable:
-    """Ref-like wrapper representing a Quickbase table structure."""
+    """Reference-like wrapper for a Quickbase table.
+
+    Attributes:
+        api_client: Client used to execute Quickbase API requests.
+    """
 
     def __init__(
         self,
@@ -27,7 +46,15 @@ class StructureTable:
         id: str,
         app_id: str | None = None,
         name: str | None = None,
-    ):
+    ) -> None:
+        """Initialize a table reference.
+
+        Args:
+            api_client: Client used to execute API requests.
+            id: Quickbase table ID.
+            app_id: Parent application ID, when known.
+            name: Table name, when known.
+        """
         self.api_client = api_client
         self._id = id
         self._app_id = app_id
@@ -35,17 +62,31 @@ class StructureTable:
 
     @property
     def id(self) -> str:
+        """Return the Quickbase table ID."""
         return self._id
 
     @property
     def app_id(self) -> str | None:
+        """Return the known parent application ID."""
         return self._app_id
 
     @property
     def name(self) -> str | None:
+        """Return the known table name."""
         return self._name
 
     def _require_app_id(self, operation: str) -> str:
+        """Return the parent application ID or raise a validation error.
+
+        Args:
+            operation: Name of the operation requiring an application ID.
+
+        Returns:
+            The resolved parent application ID.
+
+        Raises:
+            QuickbaseValidationError: If this reference has no application ID.
+        """
         if not self._app_id:
             raise QuickbaseValidationError(
                 format_error_message(
@@ -58,7 +99,15 @@ class StructureTable:
         return self._app_id
 
     def get_details(self) -> Dict[str, Any]:
-        """Retrieve table properties via GET /v1/tables/{tableId}?appId={appId}."""
+        """Retrieve the table's properties.
+
+        Returns:
+            The table properties returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request fails.
+        """
         app_id = self._require_app_id("StructureTable.get_details")
         response = self.api_client.request(
             method="GET",
@@ -76,7 +125,21 @@ class StructureTable:
         single_record_name: str | None = None,
         description: str | None = None,
     ) -> Dict[str, Any]:
-        """Update table properties via POST /v1/tables/{tableId}?appId={appId}."""
+        """Update table properties.
+
+        Args:
+            name: New table name.
+            plural_name: New plural record name.
+            single_record_name: New singular record name.
+            description: New table description.
+
+        Returns:
+            The updated table payload returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.update")
         payload: Dict[str, Any] = {}
         if name is not None:
@@ -99,7 +162,12 @@ class StructureTable:
         return response.json()
 
     def delete(self) -> None:
-        """Delete this table via DELETE /v1/tables/{tableId}?appId={appId}."""
+        """Delete the table.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.delete")
         self.api_client.request(
             method="DELETE",
@@ -108,8 +176,16 @@ class StructureTable:
         )
 
     # FIELD MANAGEMENT
-    def field(self, id: int | str, label: str | None = None):
-        """Return a StructureField wrapper referencing a field in this table."""
+    def field(self, id: int | str, label: str | None = None) -> StructureField:
+        """Create a reference to a field in the table.
+
+        Args:
+            id: Quickbase field ID.
+            label: Optional field label.
+
+        Returns:
+            A field reference associated with this table.
+        """
         from quickbase_structure_client.field import StructureField
 
         return StructureField(
@@ -126,7 +202,21 @@ class StructureTable:
         field_type: str,
         properties: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Create a field via POST /v1/fields?tableId={tableId}."""
+        """Create a field in the table.
+
+        Args:
+            label: Field label.
+            field_type: Quickbase field type.
+            properties: Additional Quickbase field properties. ``description``
+                is accepted as an alias for ``fieldHelp``.
+
+        Returns:
+            The created field payload returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.create_field")
         payload: Dict[str, Any] = {
             "label": label,
@@ -144,7 +234,17 @@ class StructureTable:
         return response.json()
 
     def list_fields(self, include_field_perms: bool = False) -> List[Dict[str, Any]]:
-        """List fields in this table via GET /v1/fields?tableId={tableId}."""
+        """List fields in the table.
+
+        Args:
+            include_field_perms: Whether to include field-level permissions.
+
+        Returns:
+            Field metadata returned by Quickbase.
+
+        Raises:
+            QuickbaseError: If the Quickbase request fails.
+        """
         endpoint = f"/fields?tableId={self._id}"
         if include_field_perms:
             endpoint += "&includeFieldPerms=true"
@@ -159,7 +259,20 @@ class StructureTable:
         field_id: int | str,
         properties: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Update field properties, including formulas, via POST /v1/fields/{fieldId}."""
+        """Update a field in the table.
+
+        Args:
+            field_id: Quickbase field ID.
+            properties: Field properties to update. ``description`` is
+                accepted as an alias for ``fieldHelp``.
+
+        Returns:
+            The updated field payload returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.update_field")
         response = self.api_client.request(
             method="POST",
@@ -170,7 +283,19 @@ class StructureTable:
         return response.json()
 
     def delete_fields(self, field_ids: List[int | str]) -> Dict[str, Any]:
-        """Delete field(s) via DELETE /v1/fields?tableId={tableId}."""
+        """Delete one or more fields from the table.
+
+        Args:
+            field_ids: Quickbase field IDs to delete.
+
+        Returns:
+            The deletion response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            ValueError: If a field ID cannot be converted to an integer.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.delete_fields")
         payload = {"fieldIds": [int(fid) for fid in field_ids]}
         response = self.api_client.request(
@@ -182,8 +307,15 @@ class StructureTable:
         return response.json()
 
     # RELATIONSHIP MANAGEMENT
-    def relationship(self, id: int | str):
-        """Return a StructureRelationship wrapper referencing a relationship on this child table."""
+    def relationship(self, id: int | str) -> StructureRelationship:
+        """Create a reference to a relationship on this child table.
+
+        Args:
+            id: Quickbase relationship ID.
+
+        Returns:
+            A relationship reference associated with this child table.
+        """
         from quickbase_structure_client.relationship import StructureRelationship
 
         return StructureRelationship(
@@ -194,7 +326,17 @@ class StructureTable:
         )
 
     def list_relationships(self, skip: int | None = None) -> List[Dict[str, Any]]:
-        """List relationships for this table via GET /v1/tables/{tableId}/relationships."""
+        """List relationships for which this table is the child.
+
+        Args:
+            skip: Optional number of relationships to skip.
+
+        Returns:
+            Relationship metadata returned by Quickbase.
+
+        Raises:
+            QuickbaseError: If the Quickbase request fails.
+        """
         endpoint = f"/tables/{self._id}/relationships"
         if skip is not None:
             endpoint += f"?skip={skip}"
@@ -208,7 +350,18 @@ class StructureTable:
         return data.get("relationships", [])
 
     def create_relationship(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Create relationship with parent table via POST /v1/tables/{childTableId}/relationship."""
+        """Create a relationship with a parent table.
+
+        Args:
+            payload: Relationship definition accepted by Quickbase.
+
+        Returns:
+            The created relationship payload returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.create_relationship")
         response = self.api_client.request(
             method="POST",
@@ -223,7 +376,19 @@ class StructureTable:
         relationship_id: int | str,
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Update relationship via POST /v1/tables/{childTableId}/relationship/{relationshipId}."""
+        """Update a relationship on the table.
+
+        Args:
+            relationship_id: Quickbase relationship ID.
+            payload: Relationship properties to update.
+
+        Returns:
+            The updated relationship payload returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.update_relationship")
         response = self.api_client.request(
             method="POST",
@@ -234,7 +399,18 @@ class StructureTable:
         return response.json()
 
     def delete_relationship(self, relationship_id: int | str) -> Dict[str, Any]:
-        """Delete relationship via DELETE /v1/tables/{childTableId}/relationship/{id}."""
+        """Delete a relationship from the table.
+
+        Args:
+            relationship_id: Quickbase relationship ID.
+
+        Returns:
+            The deletion response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the parent application ID is unknown.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id("StructureTable.delete_relationship")
         response = self.api_client.request(
             method="DELETE",

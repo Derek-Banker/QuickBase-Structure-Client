@@ -1,3 +1,5 @@
+"""Quickbase Solutions API operations and QBL export helpers."""
+
 from __future__ import annotations
 
 import logging
@@ -13,15 +15,33 @@ logger = logging.getLogger(__name__)
 
 
 class SolutionsManager:
-    """Manager for the Quickbase Solutions (ALM / QBL) API endpoints."""
+    """Manage Quickbase Solutions and QBL documents.
 
-    def __init__(self, api_client: QuickBaseStructureClient):
+    Attributes:
+        api_client: Client used to execute Quickbase API requests.
+    """
+
+    def __init__(self, api_client: QuickBaseStructureClient) -> None:
+        """Initialize the solutions manager.
+
+        Args:
+            api_client: Client used to execute API requests.
+        """
         self.api_client = api_client
 
     def export_solution(self, solution_id: str, qbl_version: str | None = None) -> str:
-        """
-        Export a solution's schema as QBL text.
-        GET /v1/solutions/{solutionId}
+        """Export a solution's schema as QBL text.
+
+        Args:
+            solution_id: Quickbase solution ID.
+            qbl_version: Optional QBL version to request.
+
+        Returns:
+            The solution schema as QBL text.
+
+        Raises:
+            QuickbaseValidationError: If ``solution_id`` is empty.
+            QuickbaseError: If the Quickbase request fails.
         """
         if not solution_id:
             raise QuickbaseValidationError(
@@ -30,7 +50,7 @@ class SolutionsManager:
                     operation="SolutionsManager.export_solution",
                 )
             )
-        
+
         headers: Dict[str, str] = {}
         if qbl_version:
             headers["QBL-Version"] = qbl_version
@@ -49,9 +69,19 @@ class SolutionsManager:
         *,
         errors_as_success: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Create a Quickbase solution from a QBL document.
-        POST /v1/solutions
+        """Create a Quickbase solution from a QBL document.
+
+        Args:
+            qbl: Non-empty QBL document.
+            errors_as_success: Whether QBL processing errors should be returned
+                as successful HTTP responses.
+
+        Returns:
+            The solution creation response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If ``qbl`` is not a non-empty string.
+            QuickbaseError: If the Quickbase request fails.
         """
         if not isinstance(qbl, str) or not qbl.strip():
             raise QuickbaseValidationError(
@@ -81,9 +111,23 @@ class SolutionsManager:
         record_id: int | str | None = None,
         qbl_version: str | None = None,
     ) -> Dict[str, Any]:
-        """
-        Export a solution's QBL schema directly into a file attachment field of a table.
-        GET /v1/solutions/{solutionId}/torecord?tableId={tableId}&fieldId={fieldId}
+        """Export a solution's QBL schema to a file attachment field.
+
+        Args:
+            solution_id: Quickbase solution ID.
+            table_id: Destination table ID.
+            field_id: Destination file attachment field ID.
+            record_id: Existing destination record ID. Quickbase creates a
+                record when this value is omitted.
+            qbl_version: Optional QBL version to request.
+
+        Returns:
+            The export response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the solution, table, or field ID is
+                missing.
+            QuickbaseError: If the Quickbase request fails.
         """
         if not solution_id or not table_id or not field_id:
             raise QuickbaseValidationError(
@@ -116,7 +160,21 @@ class SolutionsManager:
         filepath: str | Path,
         qbl_version: str | None = None,
     ) -> Path:
-        """Helper to download a solution's QBL schema and save it to a local file."""
+        """Download a solution's QBL schema to a local file.
+
+        Args:
+            solution_id: Quickbase solution ID.
+            filepath: Destination file path.
+            qbl_version: Optional QBL version to request.
+
+        Returns:
+            The path of the written QBL file.
+
+        Raises:
+            QuickbaseValidationError: If ``solution_id`` is empty.
+            QuickbaseError: If the Quickbase request fails.
+            OSError: If the destination directory or file cannot be written.
+        """
         qbl_content = self.export_solution(solution_id, qbl_version=qbl_version)
         path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)

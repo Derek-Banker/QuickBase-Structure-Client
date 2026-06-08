@@ -1,9 +1,19 @@
+"""Exception types and error-formatting helpers for the package."""
+
 from __future__ import annotations
 
 from typing import Any
 
 
 def _format_detail(value: Any) -> str:
+    """Format a contextual error value for display.
+
+    Args:
+        value: Value to include in an error message.
+
+    Returns:
+        A readable representation of the value.
+    """
     if isinstance(value, BaseException):
         return f"{type(value).__name__}: {value}"
     return repr(value)
@@ -17,6 +27,18 @@ def format_error_message(
     object_ref: str | None = None,
     **context: Any,
 ) -> str:
+    """Build an error message with structured operation context.
+
+    Args:
+        summary: Human-readable description of the failure.
+        operation: Operation that failed.
+        endpoint: Quickbase API endpoint involved in the failure.
+        object_ref: Identifier or name of the affected object.
+        **context: Additional named values to append to the message.
+
+    Returns:
+        The summary followed by any supplied context values.
+    """
     details: list[str] = []
 
     if operation:

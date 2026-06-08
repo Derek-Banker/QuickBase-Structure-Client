@@ -1,3 +1,5 @@
+"""Quickbase application trustee management."""
+
 from __future__ import annotations
 
 import logging
@@ -12,13 +14,34 @@ logger = logging.getLogger(__name__)
 
 
 class TrusteesManager:
-    """Manager for Quickbase app trustees, roles, users, and groups."""
+    """Manage trustees assigned to Quickbase applications.
 
-    def __init__(self, api_client: QuickBaseStructureClient):
+    Attributes:
+        api_client: Client used to execute Quickbase API requests.
+    """
+
+    def __init__(self, api_client: QuickBaseStructureClient) -> None:
+        """Initialize the trustee manager.
+
+        Args:
+            api_client: Client used to execute API requests.
+        """
         self.api_client = api_client
 
     @staticmethod
     def _require_app_id(app_id: str, operation: str) -> str:
+        """Validate and return an application ID.
+
+        Args:
+            app_id: Quickbase application ID.
+            operation: Name of the trustee operation being performed.
+
+        Returns:
+            The validated application ID.
+
+        Raises:
+            QuickbaseValidationError: If ``app_id`` is empty.
+        """
         if not app_id:
             raise QuickbaseValidationError(
                 format_error_message(
@@ -35,6 +58,20 @@ class TrusteesManager:
         *,
         required_keys: frozenset[str],
     ) -> List[Dict[str, Any]]:
+        """Validate trustee payload shape and required keys.
+
+        Args:
+            trustees: Trustee payloads to validate.
+            operation: Name of the trustee operation being performed.
+            required_keys: Keys required in every trustee payload.
+
+        Returns:
+            The validated trustee payload list.
+
+        Raises:
+            QuickbaseValidationError: If the list is empty, contains a
+                non-dictionary item, or omits required keys.
+        """
         if not isinstance(trustees, list) or not trustees:
             raise QuickbaseValidationError(
                 format_error_message(
@@ -73,7 +110,18 @@ class TrusteesManager:
         return trustees
 
     def get_trustees(self, app_id: str) -> Dict[str, Any]:
-        """Get trustees for the application via GET /v1/app/{appId}/trustees."""
+        """Retrieve trustees assigned to an application.
+
+        Args:
+            app_id: Quickbase application ID.
+
+        Returns:
+            Trustee information returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If ``app_id`` is empty.
+            QuickbaseError: If the Quickbase request fails.
+        """
         app_id = self._require_app_id(app_id, "TrusteesManager.get_trustees")
         response = self.api_client.request(
             method="GET",
@@ -82,7 +130,21 @@ class TrusteesManager:
         return response.json()
 
     def add_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Add trustees via POST /v1/app/{appId}/trustees."""
+        """Add trustees to an application.
+
+        Args:
+            app_id: Quickbase application ID.
+            trustees: Trustee payloads containing ``id``, ``type``, and
+                ``roleId`` values.
+
+        Returns:
+            The trustee update response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the application ID or trustee
+                payloads are invalid.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id(app_id, "TrusteesManager.add_trustees")
         payload = self._validate_trustees(
             trustees,
@@ -98,7 +160,21 @@ class TrusteesManager:
         return response.json()
 
     def update_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Update trustees via PATCH /v1/app/{appId}/trustees."""
+        """Update trustee role assignments for an application.
+
+        Args:
+            app_id: Quickbase application ID.
+            trustees: Trustee payloads containing ``id``, ``type``,
+                ``roleId``, and ``oldRoleId`` values.
+
+        Returns:
+            The trustee update response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the application ID or trustee
+                payloads are invalid.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id(app_id, "TrusteesManager.update_trustees")
         payload = self._validate_trustees(
             trustees,
@@ -114,7 +190,21 @@ class TrusteesManager:
         return response.json()
 
     def remove_trustees(self, app_id: str, trustees: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Remove trustees via DELETE /v1/app/{appId}/trustees."""
+        """Remove trustees from an application.
+
+        Args:
+            app_id: Quickbase application ID.
+            trustees: Trustee payloads containing ``id``, ``type``, and
+                ``roleId`` values.
+
+        Returns:
+            The trustee removal response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If the application ID or trustee
+                payloads are invalid.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
         app_id = self._require_app_id(app_id, "TrusteesManager.remove_trustees")
         payload = self._validate_trustees(
             trustees,

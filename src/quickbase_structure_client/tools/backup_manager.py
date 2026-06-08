@@ -1,3 +1,5 @@
+"""Automatic backup orchestration for structural Quickbase changes."""
+
 from __future__ import annotations
 
 import logging
@@ -18,15 +20,37 @@ logger = logging.getLogger(__name__)
 
 
 class BackupManager:
-    """Automated pre-change and post-change backup manager for structural modifications."""
+    """Create pre-change and post-change backups for structural mutations.
 
-    def __init__(self, api_client: QuickBaseStructureClient):
+    Attributes:
+        api_client: Client whose backup configuration and API access are used.
+    """
+
+    def __init__(self, api_client: QuickBaseStructureClient) -> None:
+        """Initialize the backup manager.
+
+        Args:
+            api_client: Configured Quickbase structure client.
+        """
         self.api_client = api_client
 
     def trigger_pre_backup(self, app_id: str) -> Dict[str, Any] | None:
-        """
-        Takes a snapshot of the application state prior to a mutating action.
-        Returns a dict representing the state to pass to post_backup, or None if disabled.
+        """Create a snapshot before a mutating operation.
+
+        Depending on client configuration, the snapshot is a QBL schema export,
+        an application clone, or a clone fallback after schema export failure.
+
+        Args:
+            app_id: Application ID to back up.
+
+        Returns:
+            Backup state to pass to :meth:`trigger_post_backup`, or ``None``
+            when automatic backup is disabled or ``app_id`` is empty.
+
+        Raises:
+            QuickbaseValidationError: If schema backup requires a solution ID
+                and clone fallback is disabled.
+            QuickbaseBackupError: If the configured backup cannot be created.
         """
         if not self.api_client.auto_backup:
             return None
@@ -115,7 +139,16 @@ class BackupManager:
         return state
 
     def trigger_post_backup(self, state: Dict[str, Any] | None) -> None:
-        """Takes a snapshot of the application state after a successful mutating action."""
+        """Create a snapshot after a successful mutating operation.
+
+        Args:
+            state: State returned by :meth:`trigger_pre_backup`. ``None`` is
+                accepted and causes no action.
+
+        Raises:
+            KeyError: If the supplied backup state is incomplete.
+            QuickbaseBackupError: If the configured backup cannot be created.
+        """
         if not state:
             return
 
