@@ -45,6 +45,35 @@ schema = client.exporter.compile_schema(app.id)
 print(client.exporter.to_markdown(schema))
 ```
 
+## Schema Export
+
+Use the standalone example to export an existing application's tables, fields,
+formulas, and relationships to both JSON and Markdown:
+
+```powershell
+$env:QUICKBASE_REALM_HOSTNAME = "example.quickbase.com"
+$env:QUICKBASE_USER_TOKEN = "qb-user-token"
+python examples/export_schema.py --app-id "your-app-id"
+```
+
+By default, the files are written to `schema_exports/<app-id>_schema.json` and
+`schema_exports/<app-id>_schema.md`. Use `--output-dir` to choose another
+directory:
+
+```powershell
+python examples/export_schema.py --app-id "your-app-id" --output-dir "exports"
+```
+
+The same API can be used directly:
+
+```python
+from pathlib import Path
+
+schema = client.exporter.compile_schema("your-app-id")
+client.exporter.to_json(schema, Path("exports/schema.json"))
+client.exporter.to_markdown(schema, Path("exports/schema.md"))
+```
+
 ## Solutions / QBL
 
 Solution creation accepts the raw QBL document required by Quickbase:
