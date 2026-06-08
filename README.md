@@ -136,6 +136,10 @@ creating fields, use `fieldHelp` instead of `description`. The client maps
 - Destructive app deletion requires the app name as confirmation because the
   Quickbase API requires that confirmation payload.
 
+## DISCLAIMER
+
+This project was made primarily through the use of LLMs. As a result its code is open and available for all. 
+
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+The Unlicense. See [LICENSE](LICENSE).
