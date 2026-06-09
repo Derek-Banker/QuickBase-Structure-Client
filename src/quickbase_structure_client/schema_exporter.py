@@ -7,10 +7,15 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from quickbase_structure_client.exceptions import QuickbaseSchemaError, format_error_message
+from quickbase_structure_client.exceptions import (
+    QuickbaseSchemaError,
+    QuickbaseValidationError,
+    format_error_message,
+)
 
 if TYPE_CHECKING:
     from quickbase_structure_client.quickbase_api import QuickBaseStructureClient
+    from quickbase_structure_client.table import StructureTable
 
 logger = logging.getLogger(__name__)
 
@@ -44,24 +49,139 @@ class SchemaExporter:
             return ""
         return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
-    def compile_schema(self, app_id: str) -> Dict[str, Any]:
+    def _compile_table(
+        self,
+        app_id: str,
+        table_info: Dict[str, Any],
+        table_ref: StructureTable,
+    ) -> Dict[str, Any]:
+        """Compile one table's fields and child relationships.
+
+        Args:
+            app_id: Parent Quickbase application ID.
+            table_info: Table metadata returned by Quickbase.
+            table_ref: Bound table reference used for child lookups.
+
+        Returns:
+            A dictionary containing the compiled table schema.
+
+        Raises:
+            QuickbaseSchemaError: If the table has no ID, or fields or
+                relationships cannot be retrieved.
+        """
+        table_id = table_info.get("id")
+        if table_id is None:
+            raise QuickbaseSchemaError(
+                format_error_message(
+                    "Quickbase returned a table without an ID.",
+                    operation="SchemaExporter.compile_schema",
+                    app_id=app_id,
+                    table=table_info,
+                )
+            )
+        table_id = str(table_id)
+        table_schema: Dict[str, Any] = {
+            "id": table_id,
+            "name": table_info.get("name"),
+            "plural_name": table_info.get("pluralRecordName") or table_info.get("pluralName"),
+            "description": table_info.get("description"),
+            "fields": [],
+            "relationships": [],
+        }
+
+        try:
+            for field_info in table_ref.list_fields():
+                properties = field_info.get("properties", {})
+                table_schema["fields"].append(
+                    {
+                        "id": field_info.get("id"),
+                        "label": field_info.get("label"),
+                        "type": field_info.get("fieldType"),
+                        "formula": properties.get("formula"),
+                        "unique": field_info.get(
+                            "unique",
+                            properties.get("unique", False),
+                        ),
+                        "required": field_info.get(
+                            "required",
+                            properties.get("required", False),
+                        ),
+                    }
+                )
+        except Exception as exc:
+            raise QuickbaseSchemaError(
+                format_error_message(
+                    "Failed to fetch fields while compiling the schema.",
+                    operation="SchemaExporter.compile_schema",
+                    app_id=app_id,
+                    table_id=table_id,
+                )
+            ) from exc
+
+        try:
+            for relationship in table_ref.list_relationships():
+                table_schema["relationships"].append(
+                    {
+                        "relationship_id": relationship.get("id"),
+                        "parent_table_id": relationship.get("parentTableId"),
+                        "parent_table_name": relationship.get("parentTableName"),
+                        "reference_field_id": relationship.get("referenceFieldId"),
+                        "reference_field_label": relationship.get("referenceFieldLabel"),
+                    }
+                )
+        except Exception as exc:
+            raise QuickbaseSchemaError(
+                format_error_message(
+                    "Failed to fetch relationships while compiling the schema.",
+                    operation="SchemaExporter.compile_schema",
+                    app_id=app_id,
+                    table_id=table_id,
+                )
+            ) from exc
+
+        return table_schema
+
+    def compile_schema(
+        self,
+        app_id: str,
+        *,
+        table_id: str | None = None,
+    ) -> Dict[str, Any]:
         """Compile an application's structural schema.
 
         The compiled schema contains application metadata, tables, fields,
-        formulas, and relationships for which each table is the child.
+        formulas, and relationships for which each table is the child. When
+        ``table_id`` is supplied, only that table is compiled.
 
         Args:
             app_id: Quickbase application ID.
+            table_id: Optional Quickbase table ID to compile by itself.
 
         Returns:
-            A dictionary containing the compiled application schema.
+            A dictionary containing the compiled application schema. A
+            single-table export retains the same shape with one item in
+            ``tables``.
 
         Raises:
+            QuickbaseValidationError: If ``table_id`` is empty.
             QuickbaseSchemaError: If Quickbase returns invalid table metadata,
                 or if fields or relationships cannot be retrieved.
             QuickbaseError: If application or table retrieval fails.
         """
-        logger.info("Compiling schema structure for app: %s", app_id)
+        if table_id is not None and not table_id.strip():
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "table_id must be a non-empty string when provided.",
+                    operation="SchemaExporter.compile_schema",
+                    app_id=app_id,
+                )
+            )
+
+        logger.info(
+            "Compiling schema structure for app %s%s",
+            app_id,
+            f", table {table_id}" if table_id is not None else "",
+        )
 
         app_ref = self.api_client.app(id=app_id)
         app_details = app_ref.get_details()
@@ -73,9 +193,16 @@ class SchemaExporter:
             "tables": [],
         }
 
+        if table_id is not None:
+            table_ref = app_ref.table(id=table_id)
+            table_info = dict(table_ref.get_details())
+            table_info["id"] = table_id
+            schema["tables"].append(self._compile_table(app_id, table_info, table_ref))
+            return schema
+
         for table_info in app_ref.list_tables():
-            table_id = table_info.get("id")
-            if table_id is None:
+            listed_table_id = table_info.get("id")
+            if listed_table_id is None:
                 raise QuickbaseSchemaError(
                     format_error_message(
                         "Quickbase returned a table without an ID.",
@@ -84,68 +211,8 @@ class SchemaExporter:
                         table=table_info,
                     )
                 )
-            table_id = str(table_id)
-            table_schema: Dict[str, Any] = {
-                "id": table_id,
-                "name": table_info.get("name"),
-                "plural_name": table_info.get("pluralRecordName") or table_info.get("pluralName"),
-                "description": table_info.get("description"),
-                "fields": [],
-                "relationships": [],
-            }
-
-            table_ref = app_ref.table(id=table_id)
-            try:
-                for field_info in table_ref.list_fields():
-                    properties = field_info.get("properties", {})
-                    table_schema["fields"].append(
-                        {
-                            "id": field_info.get("id"),
-                            "label": field_info.get("label"),
-                            "type": field_info.get("fieldType"),
-                            "formula": properties.get("formula"),
-                            "unique": field_info.get(
-                                "unique",
-                                properties.get("unique", False),
-                            ),
-                            "required": field_info.get(
-                                "required",
-                                properties.get("required", False),
-                            ),
-                        }
-                    )
-            except Exception as exc:
-                raise QuickbaseSchemaError(
-                    format_error_message(
-                        "Failed to fetch fields while compiling the schema.",
-                        operation="SchemaExporter.compile_schema",
-                        app_id=app_id,
-                        table_id=table_id,
-                    )
-                ) from exc
-
-            try:
-                for relationship in table_ref.list_relationships():
-                    table_schema["relationships"].append(
-                        {
-                            "relationship_id": relationship.get("id"),
-                            "parent_table_id": relationship.get("parentTableId"),
-                            "parent_table_name": relationship.get("parentTableName"),
-                            "reference_field_id": relationship.get("referenceFieldId"),
-                            "reference_field_label": relationship.get("referenceFieldLabel"),
-                        }
-                    )
-            except Exception as exc:
-                raise QuickbaseSchemaError(
-                    format_error_message(
-                        "Failed to fetch relationships while compiling the schema.",
-                        operation="SchemaExporter.compile_schema",
-                        app_id=app_id,
-                        table_id=table_id,
-                    )
-                ) from exc
-
-            schema["tables"].append(table_schema)
+            table_ref = app_ref.table(id=str(listed_table_id))
+            schema["tables"].append(self._compile_table(app_id, table_info, table_ref))
 
         return schema
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add complete user and developer documentation for setup, the public API, request behavior,
+  automatic backups, schema and QBL workflows, repository examples, and local development.
+- Add single-table schema compilation through `SchemaExporter.compile_schema(..., table_id=...)`
+  and the schema export example's `--table-id` option.
+
 ## [0.1.2] - 2026-06-08
 
 ### Added

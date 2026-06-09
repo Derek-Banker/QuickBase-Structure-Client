@@ -9,8 +9,17 @@ focuses on administration and schema lifecycle work.
 
 ## Documentation
 
-See the [documentation index](docs/index.md) for long-form guides and the
-[changelog](CHANGELOG.md) for notable changes.
+See the [documentation index](docs/index.md) for all guides:
+
+- [Getting started](docs/getting-started.md)
+- [API reference](docs/api-reference.md)
+- [Request configuration](docs/request-configuration.md)
+- [Automatic backups](docs/automatic-backups.md)
+- [Schema exports and Solutions/QBL](docs/schema-exports-and-solutions.md)
+- [Examples](docs/examples.md)
+- [Development](docs/development.md)
+
+See the [changelog](CHANGELOG.md) for notable changes.
 
 ## Installation
 
@@ -83,6 +92,9 @@ schema = client.exporter.compile_schema("your-app-id")
 client.exporter.to_json(schema, Path("exports/schema.json"))
 client.exporter.to_markdown(schema, Path("exports/schema.md"))
 ```
+
+Pass `table_id="your-table-id"` to `compile_schema` to export only one table. The example
+command provides the equivalent `--table-id "your-table-id"` option.
 
 ## Solutions / QBL
 
