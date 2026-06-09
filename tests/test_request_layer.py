@@ -6,7 +6,11 @@ import pytest
 import requests
 
 import quickbase_structure_client.quickbase_api as quickbase_api_module
-from quickbase_structure_client.exceptions import QuickbaseTransportError
+from quickbase_structure_client.exceptions import (
+    QuickbaseAuthError,
+    QuickbaseConfigurationError,
+    QuickbaseTransportError,
+)
 from quickbase_structure_client.quickbase_api import (
     Auth,
     QuickBaseStructureClient,
@@ -33,6 +37,22 @@ def test_auth_normalizes_realm_hostname_and_user_token_prefix() -> None:
 def test_auth_normalization_helpers_are_available() -> None:
     assert normalize_realm_hostname("http://example.quickbase.com/") == "example.quickbase.com"
     assert normalize_user_token("qb-user-token token-value") == "token-value"
+
+
+@pytest.mark.parametrize(
+    ("realm", "user_token", "message"),
+    [
+        ("", "real-token", "realm hostname"),
+        ("example.quickbase.com", "QB-USER-TOKEN", "user token"),
+    ],
+)
+def test_auth_rejects_empty_normalized_credentials(
+    realm: str,
+    user_token: str,
+    message: str,
+) -> None:
+    with pytest.raises(QuickbaseConfigurationError, match=message):
+        Auth(realm, user_token)
 
 
 def test_request_retries_retryable_status_and_passes_extra_headers(monkeypatch) -> None:
@@ -161,6 +181,31 @@ def test_request_sends_string_payload_as_raw_data(monkeypatch) -> None:
         "type": "str",
         "character_count": len(qbl),
     }
+
+
+def test_http_error_redacts_user_token_from_response_body(monkeypatch) -> None:
+    user_token = "sensitive-user-token"
+    api = QuickBaseStructureClient(
+        Auth("example.quickbase.com", user_token),
+        request_config=RequestConfig(retry_count=0, jitter=0.0),
+        auto_backup=False,
+    )
+    monkeypatch.setattr(
+        api.session,
+        "request",
+        Mock(
+            return_value=FakeResponse(
+                status_code=401,
+                text=f"Quickbase rejected {user_token}.",
+            )
+        ),
+    )
+
+    with pytest.raises(QuickbaseAuthError) as exc_info:
+        api.request(method="GET", endpoint="/apps/app1")
+
+    assert user_token not in str(exc_info.value)
+    assert "<redacted>" in str(exc_info.value)
 
 
 def test_clone_backup_is_suppressed_during_backup_operations(monkeypatch) -> None:

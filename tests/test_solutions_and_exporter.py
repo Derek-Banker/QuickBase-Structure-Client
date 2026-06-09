@@ -4,7 +4,8 @@ from typing import Any, cast
 
 import pytest
 
-from quickbase_structure_client.exceptions import QuickbaseSchemaError
+from quickbase_structure_client.app import StructureApp
+from quickbase_structure_client.exceptions import QuickbaseSchemaError, QuickbaseValidationError
 from quickbase_structure_client.schema_exporter import SchemaExporter
 from quickbase_structure_client.solutions import SolutionsManager
 
@@ -123,3 +124,95 @@ def test_schema_exporter_raises_instead_of_returning_partial_schema() -> None:
 
     with pytest.raises(QuickbaseSchemaError, match="Failed to fetch fields"):
         exporter.compile_schema("app1")
+
+
+def test_schema_exporter_compiles_only_requested_table() -> None:
+    class SchemaClient(RecordingClient):
+        def app(self, id: str) -> StructureApp:
+            return StructureApp(cast(Any, self), id=id)
+
+    client = SchemaClient(
+        [
+            FakeResponse({"name": "Operations", "description": "Ops schema"}),
+            FakeResponse(
+                {
+                    "id": "table1",
+                    "name": "Orders",
+                    "pluralRecordName": "Orders",
+                    "description": "Order records",
+                }
+            ),
+            FakeResponse(
+                [
+                    {
+                        "id": 7,
+                        "label": "Total",
+                        "fieldType": "currency",
+                        "properties": {"required": True},
+                    }
+                ]
+            ),
+            FakeResponse(
+                {
+                    "relationships": [
+                        {
+                            "id": 3,
+                            "parentTableId": "customers",
+                            "parentTableName": "Customers",
+                            "referenceFieldId": 12,
+                            "referenceFieldLabel": "Customer",
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
+    exporter = SchemaExporter(cast(Any, client))
+
+    schema = exporter.compile_schema("app1", table_id="table1")
+
+    assert schema == {
+        "app_id": "app1",
+        "name": "Operations",
+        "description": "Ops schema",
+        "tables": [
+            {
+                "id": "table1",
+                "name": "Orders",
+                "plural_name": "Orders",
+                "description": "Order records",
+                "fields": [
+                    {
+                        "id": 7,
+                        "label": "Total",
+                        "type": "currency",
+                        "formula": None,
+                        "unique": False,
+                        "required": True,
+                    }
+                ],
+                "relationships": [
+                    {
+                        "relationship_id": 3,
+                        "parent_table_id": "customers",
+                        "parent_table_name": "Customers",
+                        "reference_field_id": 12,
+                        "reference_field_label": "Customer",
+                    }
+                ],
+            }
+        ],
+    }
+    assert client.calls == [
+        {"method": "GET", "endpoint": "/apps/app1"},
+        {"method": "GET", "endpoint": "/tables/table1?appId=app1"},
+        {"method": "GET", "endpoint": "/fields?tableId=table1"},
+        {"method": "GET", "endpoint": "/tables/table1/relationships"},
+    ]
+
+
+def test_schema_exporter_rejects_empty_table_id() -> None:
+    exporter = SchemaExporter(api_client=cast(Any, None))
+
+    with pytest.raises(QuickbaseValidationError, match="table_id must be a non-empty string"):
+        exporter.compile_schema("app1", table_id=" ")

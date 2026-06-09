@@ -1,4 +1,4 @@
-"""Export an existing Quickbase application's schema to JSON and Markdown."""
+"""Export a Quickbase application or table schema to JSON and Markdown."""
 
 from __future__ import annotations
 
@@ -20,12 +20,16 @@ from quickbase_structure_client.exceptions import QuickbaseError  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(
-        description="Export a Quickbase application schema as JSON and Markdown."
+        description="Export a Quickbase application or table schema as JSON and Markdown."
     )
     parser.add_argument(
         "--app-id",
         required=True,
         help="Quickbase application ID to export.",
+    )
+    parser.add_argument(
+        "--table-id",
+        help="Optional Quickbase table ID to export by itself.",
     )
     parser.add_argument(
         "--realm-hostname",
@@ -64,9 +68,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     try:
-        schema = client.exporter.compile_schema(args.app_id)
-        json_path = args.output_dir / f"{args.app_id}_schema.json"
-        markdown_path = args.output_dir / f"{args.app_id}_schema.md"
+        schema = client.exporter.compile_schema(args.app_id, table_id=args.table_id)
+        output_name = (
+            f"{args.app_id}_{args.table_id}_schema" if args.table_id else f"{args.app_id}_schema"
+        )
+        json_path = args.output_dir / f"{output_name}.json"
+        markdown_path = args.output_dir / f"{output_name}.md"
         client.exporter.to_json(schema, json_path)
         client.exporter.to_markdown(schema, markdown_path)
     except (QuickbaseError, OSError, TypeError, KeyError) as exc:
