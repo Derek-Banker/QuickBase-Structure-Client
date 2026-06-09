@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quickbase-structure-client"
-version = "0.1.0"
+version = "0.1.2"
 description = "Python client for Quickbase structural operations, trustees management, schema backups, and schema exporting"
 authors = [{ name = "Derek Banker", email = "dbb2002@gmail.com" }]
 readme = "README.md"
-license = "Apache-2.0"
+license = "Unlicense"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["quickbase", "api", "structure", "schema", "trustees", "solutions"]
@@ -53,7 +53,13 @@ line-length = 100
 src = ["src", "tests", "examples"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["D", "E", "F", "I"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D"]
 
 [tool.mypy]
 python_version = "3.10"

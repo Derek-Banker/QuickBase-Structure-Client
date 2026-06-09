@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # DEFAULT USER AGENT CONFIG
 DEFAULT_USER_AGENT: Dict[str, str] = {
     "Base": "QuickBase-Structure-Client",
-    "Version": "0.1.0",
+    "Version": "0.1.2",
     "Suffix": "Auth",
     "Separator": "-",
 }
@@ -303,9 +303,27 @@ class Auth:
             user_token: Quickbase user token, with or without the
                 ``QB-USER-TOKEN`` prefix.
             user_agent: Optional components overriding the default user agent.
+
+        Raises:
+            QuickbaseConfigurationError: If the realm or normalized user token
+                is empty.
         """
         self.realm = normalize_realm_hostname(realm)
         self.user_token = normalize_user_token(user_token)
+        if not self.realm:
+            raise QuickbaseConfigurationError(
+                format_error_message(
+                    "A non-empty Quickbase realm hostname is required.",
+                    operation="Auth.__init__",
+                )
+            )
+        if not self.user_token:
+            raise QuickbaseConfigurationError(
+                format_error_message(
+                    "A non-empty Quickbase user token is required.",
+                    operation="Auth.__init__",
+                )
+            )
         self._user_agent = assemble_user_agent(user_agent or {})
 
     @property
@@ -745,21 +763,21 @@ class QuickBaseStructureClient:
             "response_log_hook",
         )
 
-    @staticmethod
-    def _response_body_preview(response: requests.Response) -> str | None:
+    def _response_body_preview(self, response: requests.Response) -> str | None:
         """Return a bounded response-body preview for error messages.
 
         Args:
             response: HTTP response to inspect.
 
         Returns:
-            Response text truncated to :data:`MAX_ERROR_BODY_CHARS`, or
-            ``None`` when response text is unavailable.
+            Response text with the configured user token redacted and truncated
+            to :data:`MAX_ERROR_BODY_CHARS`, or ``None`` when response text is
+            unavailable.
         """
         body = getattr(response, "text", None)
         if body is None:
             return None
-        body_text = str(body)
+        body_text = str(body).replace(self.auth.user_token, "<redacted>")
         if len(body_text) <= MAX_ERROR_BODY_CHARS:
             return body_text
         return f"{body_text[:MAX_ERROR_BODY_CHARS]}..."

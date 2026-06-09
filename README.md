@@ -7,6 +7,11 @@ This package is intended to pair with `quickbase-data-client`. The data client
 handles records, reports, files, and pandas workflows. This structure client
 focuses on administration and schema lifecycle work.
 
+## Documentation
+
+See the [documentation index](docs/index.md) for long-form guides and the
+[changelog](CHANGELOG.md) for notable changes.
+
 ## Installation
 
 ```bash
@@ -23,9 +28,14 @@ pytest
 ## Quickstart
 
 ```python
+import os
+
 from quickbase_structure_client import Auth, QuickBaseStructureClient
 
-auth = Auth("example.quickbase.com", "qb-user-token")
+auth = Auth(
+    os.environ["QUICKBASE_REALM_HOSTNAME"],
+    os.environ["QUICKBASE_USER_TOKEN"],
+)
 client = QuickBaseStructureClient(auth, auto_backup=False)
 
 app = client.create_app("Managed Operations", description="Built by automation")
@@ -112,8 +122,8 @@ and schema exports.
 
 Copy the sample environment file and fill in real Quickbase credentials:
 
-```bash
-copy .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
 Preview the plan without creating anything:

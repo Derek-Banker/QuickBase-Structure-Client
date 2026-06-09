@@ -1,3 +1,5 @@
+"""Preview or create a demonstration PTO tracking application in Quickbase."""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +26,25 @@ class DemoConfigurationError(ValueError):
 
 @dataclass(frozen=True)
 class DemoConfig:
+    """Store validated PTO demo settings.
+
+    Attributes:
+        realm_hostname: Quickbase realm hostname.
+        user_token: Quickbase user token.
+        app_name: Name of the application to create.
+        execute: Whether to perform live Quickbase operations.
+        assign_token: Whether to assign the user token to the new app.
+        auto_backup: Whether structural mutations trigger backups.
+        backup_method: Backup strategy used for structural mutations.
+        backup_solution_id: Solution ID used for schema backups.
+        backup_dir: Directory used for local backup files.
+        backup_fallback_to_clone: Whether schema backup failures clone the app.
+        export_dir: Directory used for generated schema exports.
+        create_relationship: Whether to create the demo table relationship.
+        trustee_email: Optional trustee email address.
+        trustee_role_id: Optional trustee role ID.
+    """
+
     realm_hostname: str
     user_token: str
     app_name: str
@@ -42,6 +63,19 @@ class DemoConfig:
 
 @dataclass(frozen=True)
 class DemoResult:
+    """Describe resources and files created by a live demo run.
+
+    Attributes:
+        app_id: Created application ID.
+        users_table_id: Created Users table ID.
+        events_table_id: Created PTO Events table ID.
+        app_url: Browser URL for the created application.
+        users_table_url: Browser URL for the Users table.
+        events_table_url: Browser URL for the PTO Events table.
+        schema_json_path: Path to the generated JSON schema.
+        schema_markdown_path: Path to the generated Markdown schema.
+    """
+
     app_id: str | None
     users_table_id: str | None
     events_table_id: str | None
@@ -83,6 +117,18 @@ def _env_value(env_file_values: dict[str, str], key: str, default: str = "") -> 
 
 
 def parse_bool(value: str | bool | None, *, default: bool = False) -> bool:
+    """Parse a common boolean string.
+
+    Args:
+        value: Boolean value or common true/false string.
+        default: Value returned when ``value`` is empty.
+
+    Returns:
+        The parsed boolean value.
+
+    Raises:
+        DemoConfigurationError: If a string is not a recognized boolean.
+    """
     if value is None or value == "":
         return default
     if isinstance(value, bool):
@@ -97,6 +143,17 @@ def parse_bool(value: str | bool | None, *, default: bool = False) -> bool:
 
 
 def parse_optional_int(value: str) -> int | None:
+    """Parse an optional integer setting.
+
+    Args:
+        value: Integer text or an empty string.
+
+    Returns:
+        The parsed integer, or ``None`` for an empty value.
+
+    Raises:
+        DemoConfigurationError: If ``value`` is not an integer.
+    """
     if not value:
         return None
     try:
@@ -106,6 +163,15 @@ def parse_optional_int(value: str) -> int | None:
 
 
 def quickbase_resource_url(realm_hostname: str, dbid: str | None) -> str | None:
+    """Build a browser URL for a Quickbase application or table.
+
+    Args:
+        realm_hostname: Quickbase realm hostname or URL.
+        dbid: Application or table database ID.
+
+    Returns:
+        The Quickbase browser URL, or ``None`` when ``dbid`` is absent.
+    """
     if not dbid:
         return None
     realm = realm_hostname.strip().removeprefix("https://").removeprefix("http://").strip("/")
@@ -113,6 +179,18 @@ def quickbase_resource_url(realm_hostname: str, dbid: str | None) -> str | None:
 
 
 def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfig:
+    """Load and validate demo configuration.
+
+    Args:
+        env_file: File containing demo environment variables.
+        execute_override: Whether the command line explicitly enabled execution.
+
+    Returns:
+        The validated demo configuration.
+
+    Raises:
+        DemoConfigurationError: If execution credentials or settings are invalid.
+    """
     env_file_values = load_env_file(env_file)
     execute = execute_override or parse_bool(
         _env_value(env_file_values, "QUICKBASE_DEMO_EXECUTE"),
@@ -174,6 +252,14 @@ def build_config(env_file: Path, *, execute_override: bool = False) -> DemoConfi
 
 
 def demo_plan(config: DemoConfig) -> list[str]:
+    """Build the ordered operations shown during preview.
+
+    Args:
+        config: Validated demo configuration.
+
+    Returns:
+        Human-readable operation descriptions.
+    """
     plan = [
         f"Create app: {config.app_name}",
         f"Assign user token to created app: {config.assign_token}",
@@ -191,6 +277,11 @@ def demo_plan(config: DemoConfig) -> list[str]:
 
 
 def print_plan(config: DemoConfig) -> None:
+    """Print the dry-run or execution plan.
+
+    Args:
+        config: Validated demo configuration.
+    """
     mode = "EXECUTE" if config.execute else "DRY RUN"
     print(f"PTO tracking demo mode: {mode}")
     print(f"Realm: {config.realm_hostname}")
@@ -222,6 +313,19 @@ def _create_fields(
 
 
 def run_demo(config: DemoConfig) -> DemoResult:
+    """Create the live PTO demo application and export its schema.
+
+    Args:
+        config: Validated configuration with live execution enabled.
+
+    Returns:
+        Identifiers, URLs, and output paths created by the run.
+
+    Raises:
+        DemoConfigurationError: If Quickbase omits a required resource ID.
+        QuickbaseError: If a required Quickbase operation fails.
+        OSError: If schema output files cannot be written.
+    """
     auth = Auth(
         config.realm_hostname,
         config.user_token,
@@ -371,6 +475,14 @@ def run_demo(config: DemoConfig) -> DemoResult:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse PTO demo command-line arguments.
+
+    Args:
+        argv: Optional argument sequence. Defaults to ``sys.argv``.
+
+    Returns:
+        Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Create a demo PTO tracking app in Quickbase.",
     )
@@ -388,6 +500,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the PTO demo command.
+
+    Args:
+        argv: Optional argument sequence. Defaults to ``sys.argv``.
+
+    Returns:
+        Process exit code.
+    """
     args = parse_args(argv)
     try:
         config = build_config(Path(args.env_file), execute_override=args.execute)

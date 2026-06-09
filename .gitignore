@@ -137,6 +137,8 @@ env.bak/
 venv.bak/
 
 # Demo runtime artifacts
+backups/
+schema_exports/
 demo_exports/
 demo_backups/
 

@@ -30,7 +30,7 @@ from .solutions import SolutionsManager
 from .table import StructureTable
 from .trustees import TrusteesManager
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 __all__ = [
     "__version__",
