@@ -35,6 +35,20 @@ The single-table form fetches that table directly instead of listing and compili
 It returns the same schema shape with exactly one item in `tables`, so the JSON and Markdown
 renderers work without special handling.
 
+Full application exports can issue many requests. The exporter spaces schema lookups by 0.11
+seconds by default to remain below
+[Quickbase's general limit](https://developer.quickbase.com/rateLimit) of 100 API calls per 10
+seconds per user token. Override the interval when needed:
+
+```python
+schema = client.exporter.compile_schema(
+    "app-id",
+    request_interval=0.2,
+)
+```
+
+Set `request_interval=0` only when pacing is handled elsewhere.
+
 The result has this shape:
 
 ```json
@@ -78,7 +92,8 @@ selected relationship metadata. It is not a complete serialization of every Quic
 setting.
 
 If a table lacks an ID, or field or relationship retrieval fails, compilation raises
-`QuickbaseSchemaError`. The exporter does not silently return a partial schema.
+`QuickbaseSchemaError`. The error includes the underlying failure cause, and the exporter does
+not silently return a partial schema.
 
 ## Render JSON Or Markdown
 
