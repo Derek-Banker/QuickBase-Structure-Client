@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import pytest
 
+from quickbase_structure_client import schema_exporter
 from quickbase_structure_client.app import StructureApp
 from quickbase_structure_client.exceptions import QuickbaseSchemaError, QuickbaseValidationError
 from quickbase_structure_client.schema_exporter import SchemaExporter
@@ -122,8 +123,42 @@ def test_schema_exporter_raises_instead_of_returning_partial_schema() -> None:
 
     exporter = SchemaExporter(cast(Any, FakeClient()))
 
-    with pytest.raises(QuickbaseSchemaError, match="Failed to fetch fields"):
-        exporter.compile_schema("app1")
+    with pytest.raises(
+        QuickbaseSchemaError,
+        match="cause=RuntimeError: field lookup failed",
+    ):
+        exporter.compile_schema("app1", request_interval=0)
+
+
+def test_schema_exporter_includes_relationship_failure_cause() -> None:
+    class FailingTable:
+        def list_fields(self) -> list[dict[str, Any]]:
+            return []
+
+        def list_relationships(self) -> list[dict[str, Any]]:
+            raise RuntimeError("relationship lookup failed")
+
+    class FakeApp:
+        def get_details(self) -> dict[str, Any]:
+            return {"name": "Operations"}
+
+        def list_tables(self) -> list[dict[str, Any]]:
+            return [{"id": "table1", "name": "Orders"}]
+
+        def table(self, id: str) -> FailingTable:
+            return FailingTable()
+
+    class FakeClient:
+        def app(self, id: str) -> FakeApp:
+            return FakeApp()
+
+    exporter = SchemaExporter(cast(Any, FakeClient()))
+
+    with pytest.raises(
+        QuickbaseSchemaError,
+        match="cause=RuntimeError: relationship lookup failed",
+    ):
+        exporter.compile_schema("app1", request_interval=0)
 
 
 def test_schema_exporter_compiles_only_requested_table() -> None:
@@ -169,7 +204,7 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
     )
     exporter = SchemaExporter(cast(Any, client))
 
-    schema = exporter.compile_schema("app1", table_id="table1")
+    schema = exporter.compile_schema("app1", table_id="table1", request_interval=0)
 
     assert schema == {
         "app_id": "app1",
@@ -216,3 +251,52 @@ def test_schema_exporter_rejects_empty_table_id() -> None:
 
     with pytest.raises(QuickbaseValidationError, match="table_id must be a non-empty string"):
         exporter.compile_schema("app1", table_id=" ")
+
+
+def test_schema_exporter_rejects_invalid_request_interval() -> None:
+    exporter = SchemaExporter(api_client=cast(Any, None))
+
+    with pytest.raises(QuickbaseValidationError, match="request_interval must be"):
+        exporter.compile_schema("app1", request_interval=-0.1)
+
+
+def test_schema_exporter_paces_schema_lookup_requests(monkeypatch: Any) -> None:
+    clock = 0.0
+    sleeps: list[float] = []
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(seconds: float) -> None:
+        nonlocal clock
+        sleeps.append(seconds)
+        clock += seconds
+
+    class FakeTable:
+        def list_fields(self) -> list[dict[str, Any]]:
+            return []
+
+        def list_relationships(self) -> list[dict[str, Any]]:
+            return []
+
+    class FakeApp:
+        def get_details(self) -> dict[str, Any]:
+            return {"name": "Operations"}
+
+        def list_tables(self) -> list[dict[str, Any]]:
+            return [{"id": "table1", "name": "Orders"}]
+
+        def table(self, id: str) -> FakeTable:
+            return FakeTable()
+
+    class FakeClient:
+        def app(self, id: str) -> FakeApp:
+            return FakeApp()
+
+    monkeypatch.setattr(schema_exporter.time, "monotonic", monotonic)
+    monkeypatch.setattr(schema_exporter.time, "sleep", sleep)
+    exporter = SchemaExporter(cast(Any, FakeClient()))
+
+    exporter.compile_schema("app1", request_interval=0.11)
+
+    assert sleeps == pytest.approx([0.11, 0.11, 0.11])

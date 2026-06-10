@@ -408,6 +408,7 @@ exporter.compile_schema(
     app_id: str,
     *,
     table_id: str | None = None,
+    request_interval: float = 0.11,
 ) -> dict[str, Any]
 exporter.to_json(
     schema: dict[str, Any],
@@ -422,8 +423,14 @@ exporter.to_markdown(
 Supplying `table_id` compiles only that table and returns the normal app-shaped schema with one
 entry in `tables`.
 
+Schema lookups are spaced by 0.11 seconds by default to keep large exports below
+[Quickbase's general API rate limit](https://developer.quickbase.com/rateLimit). Set
+`request_interval=0` to disable pacing, or use a larger interval when the same user token is
+shared with other integrations.
+
 Compilation raises `QuickbaseSchemaError` instead of returning a partial schema when table
-field or relationship retrieval fails.
+field or relationship retrieval fails. The error message includes the underlying HTTP,
+transport, or parsing cause.
 
 ## Exceptions
 
