@@ -69,11 +69,17 @@ exceptions:
 
 | Condition | Exception |
 |---|---|
-| HTTP 401 or 403 | `QuickbaseAuthError` |
+| HTTP 401 | `QuickbaseAuthError` |
+| HTTP 403 | `QuickbasePermissionError` |
 | HTTP 404 | `QuickbaseNotFoundError` |
 | HTTP 429 | `QuickbaseRateLimitError` |
 | Other HTTP errors | `QuickbaseHTTPError` |
 | Exhausted timeout or connection retries | `QuickbaseTransportError` |
+
+`QuickbasePermissionError` derives from `QuickbaseAuthError`, so existing authentication error
+handlers remain compatible. Package exceptions expose a `context` dictionary with structured
+details such as the endpoint and status code. Wrapper exceptions may also expose the translated
+exception through `cause`.
 
 ## Logging Hooks
 

@@ -4,9 +4,12 @@ from typing import Any, cast
 
 import pytest
 
-from quickbase_structure_client import schema_exporter
 from quickbase_structure_client.app import StructureApp
-from quickbase_structure_client.exceptions import QuickbaseSchemaError, QuickbaseValidationError
+from quickbase_structure_client.exceptions import (
+    QuickbasePermissionError,
+    QuickbaseSchemaError,
+    QuickbaseValidationError,
+)
 from quickbase_structure_client.schema_exporter import SchemaExporter
 from quickbase_structure_client.solutions import SolutionsManager
 
@@ -127,7 +130,7 @@ def test_schema_exporter_raises_instead_of_returning_partial_schema() -> None:
         QuickbaseSchemaError,
         match="cause=RuntimeError: field lookup failed",
     ):
-        exporter.compile_schema("app1", request_interval=0)
+        exporter.compile_schema("app1")
 
 
 def test_schema_exporter_includes_relationship_failure_cause() -> None:
@@ -158,7 +161,51 @@ def test_schema_exporter_includes_relationship_failure_cause() -> None:
         QuickbaseSchemaError,
         match="cause=RuntimeError: relationship lookup failed",
     ):
-        exporter.compile_schema("app1", request_interval=0)
+        exporter.compile_schema("app1")
+
+
+def test_schema_exporter_describes_relationship_permission_failure() -> None:
+    permission_error = QuickbasePermissionError(
+        "Quickbase denied access.",
+        context={"status_code": 403},
+    )
+
+    class FailingTable:
+        def list_fields(self) -> list[dict[str, Any]]:
+            return []
+
+        def list_relationships(self) -> list[dict[str, Any]]:
+            raise permission_error
+
+    class FakeApp:
+        def get_details(self) -> dict[str, Any]:
+            return {"name": "Operations"}
+
+        def list_tables(self) -> list[dict[str, Any]]:
+            return [{"id": "table1", "name": "Orders"}]
+
+        def table(self, id: str) -> FailingTable:
+            return FailingTable()
+
+    class FakeClient:
+        def app(self, id: str) -> FakeApp:
+            return FakeApp()
+
+    exporter = SchemaExporter(cast(Any, FakeClient()))
+
+    with pytest.raises(
+        QuickbaseSchemaError,
+        match="Quickbase denied access to relationship metadata",
+    ) as exc_info:
+        exporter.compile_schema("app1")
+
+    assert exc_info.value.cause is permission_error
+    assert exc_info.value.context == {
+        "operation": "SchemaExporter.compile_schema",
+        "app_id": "app1",
+        "table_id": "table1",
+        "resource": "relationship metadata",
+    }
 
 
 def test_schema_exporter_compiles_only_requested_table() -> None:
@@ -204,7 +251,7 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
     )
     exporter = SchemaExporter(cast(Any, client))
 
-    schema = exporter.compile_schema("app1", table_id="table1", request_interval=0)
+    schema = exporter.compile_schema("app1", table_id="table1")
 
     assert schema == {
         "app_id": "app1",
@@ -251,52 +298,3 @@ def test_schema_exporter_rejects_empty_table_id() -> None:
 
     with pytest.raises(QuickbaseValidationError, match="table_id must be a non-empty string"):
         exporter.compile_schema("app1", table_id=" ")
-
-
-def test_schema_exporter_rejects_invalid_request_interval() -> None:
-    exporter = SchemaExporter(api_client=cast(Any, None))
-
-    with pytest.raises(QuickbaseValidationError, match="request_interval must be"):
-        exporter.compile_schema("app1", request_interval=-0.1)
-
-
-def test_schema_exporter_paces_schema_lookup_requests(monkeypatch: Any) -> None:
-    clock = 0.0
-    sleeps: list[float] = []
-
-    def monotonic() -> float:
-        return clock
-
-    def sleep(seconds: float) -> None:
-        nonlocal clock
-        sleeps.append(seconds)
-        clock += seconds
-
-    class FakeTable:
-        def list_fields(self) -> list[dict[str, Any]]:
-            return []
-
-        def list_relationships(self) -> list[dict[str, Any]]:
-            return []
-
-    class FakeApp:
-        def get_details(self) -> dict[str, Any]:
-            return {"name": "Operations"}
-
-        def list_tables(self) -> list[dict[str, Any]]:
-            return [{"id": "table1", "name": "Orders"}]
-
-        def table(self, id: str) -> FakeTable:
-            return FakeTable()
-
-    class FakeClient:
-        def app(self, id: str) -> FakeApp:
-            return FakeApp()
-
-    monkeypatch.setattr(schema_exporter.time, "monotonic", monotonic)
-    monkeypatch.setattr(schema_exporter.time, "sleep", sleep)
-    exporter = SchemaExporter(cast(Any, FakeClient()))
-
-    exporter.compile_schema("app1", request_interval=0.11)
-
-    assert sleeps == pytest.approx([0.11, 0.11, 0.11])

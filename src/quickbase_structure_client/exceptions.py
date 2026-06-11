@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 
 def _format_detail(value: Any) -> str:
@@ -59,7 +59,30 @@ def format_error_message(
 
 
 class QuickbaseError(Exception):
-    """Base exception for package-level Quickbase failures."""
+    """Base exception for package-level Quickbase failures.
+
+    Attributes:
+        context: Structured details about the failed operation.
+        cause: Underlying exception translated by the package, when available.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        context: Mapping[str, Any] | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        """Initialize a package exception.
+
+        Args:
+            message: Human-readable failure description.
+            context: Structured details about the failed operation.
+            cause: Underlying exception translated by the package.
+        """
+        super().__init__(message)
+        self.context = dict(context or {})
+        self.cause = cause
 
 
 class QuickbaseValidationError(QuickbaseError, ValueError):
@@ -79,7 +102,11 @@ class QuickbaseHTTPError(QuickbaseError):
 
 
 class QuickbaseAuthError(QuickbaseHTTPError, PermissionError):
-    """Raised for authentication or authorization failures."""
+    """Raised when Quickbase rejects authentication."""
+
+
+class QuickbasePermissionError(QuickbaseAuthError):
+    """Raised when authentication succeeds but Quickbase denies access."""
 
 
 class QuickbaseRateLimitError(QuickbaseHTTPError):
@@ -109,6 +136,7 @@ __all__ = [
     "QuickbaseHTTPError",
     "QuickbaseNotFoundError",
     "QuickbasePayloadError",
+    "QuickbasePermissionError",
     "QuickbaseRateLimitError",
     "QuickbaseSchemaError",
     "QuickbaseTransportError",

@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-import math
-import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from quickbase_structure_client.exceptions import (
+    QuickbaseAuthError,
+    QuickbaseHTTPError,
+    QuickbaseNotFoundError,
+    QuickbasePermissionError,
+    QuickbaseRateLimitError,
     QuickbaseSchemaError,
+    QuickbaseTransportError,
     QuickbaseValidationError,
     format_error_message,
 )
@@ -20,8 +24,6 @@ if TYPE_CHECKING:
     from quickbase_structure_client.table import StructureTable
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_REQUEST_INTERVAL_SECONDS = 0.11
 
 
 class SchemaExporter:
@@ -58,7 +60,6 @@ class SchemaExporter:
         app_id: str,
         table_info: Dict[str, Any],
         table_ref: StructureTable,
-        wait_for_request_slot: Callable[[], None],
     ) -> Dict[str, Any]:
         """Compile one table's fields and child relationships.
 
@@ -66,7 +67,6 @@ class SchemaExporter:
             app_id: Parent Quickbase application ID.
             table_info: Table metadata returned by Quickbase.
             table_ref: Bound table reference used for child lookups.
-            wait_for_request_slot: Callback that paces Quickbase lookups.
 
         Returns:
             A dictionary containing the compiled table schema.
@@ -96,7 +96,6 @@ class SchemaExporter:
         }
 
         try:
-            wait_for_request_slot()
             for field_info in table_ref.list_fields():
                 properties = field_info.get("properties", {})
                 table_schema["fields"].append(
@@ -116,18 +115,14 @@ class SchemaExporter:
                     }
                 )
         except Exception as exc:
-            raise QuickbaseSchemaError(
-                format_error_message(
-                    "Failed to fetch fields while compiling the schema.",
-                    operation="SchemaExporter.compile_schema",
-                    app_id=app_id,
-                    table_id=table_id,
-                    cause=exc,
-                )
-            ) from exc
+            self._raise_lookup_error(
+                resource="field metadata",
+                app_id=app_id,
+                table_id=table_id,
+                cause=exc,
+            )
 
         try:
-            wait_for_request_slot()
             for relationship in table_ref.list_relationships():
                 table_schema["relationships"].append(
                     {
@@ -139,38 +134,86 @@ class SchemaExporter:
                     }
                 )
         except Exception as exc:
-            raise QuickbaseSchemaError(
-                format_error_message(
-                    "Failed to fetch relationships while compiling the schema.",
-                    operation="SchemaExporter.compile_schema",
-                    app_id=app_id,
-                    table_id=table_id,
-                    cause=exc,
-                )
-            ) from exc
+            self._raise_lookup_error(
+                resource="relationship metadata",
+                app_id=app_id,
+                table_id=table_id,
+                cause=exc,
+            )
 
         return table_schema
+
+    @staticmethod
+    def _raise_lookup_error(
+        *,
+        resource: str,
+        app_id: str,
+        table_id: str,
+        cause: BaseException,
+    ) -> None:
+        """Raise a contextual schema lookup failure.
+
+        Args:
+            resource: Schema resource that could not be retrieved.
+            app_id: Parent Quickbase application ID.
+            table_id: Quickbase table ID being compiled.
+            cause: Underlying lookup failure.
+
+        Raises:
+            QuickbaseSchemaError: Always raised with structured context.
+        """
+        if isinstance(cause, QuickbasePermissionError):
+            summary = (
+                f"Quickbase denied access to {resource} while compiling the schema. "
+                "Verify the user token's user has sufficient structural permissions."
+            )
+        elif isinstance(cause, QuickbaseAuthError):
+            summary = (
+                f"Quickbase authentication failed while fetching {resource}. "
+                "Verify the realm hostname and user token."
+            )
+        elif isinstance(cause, QuickbaseRateLimitError):
+            summary = f"Quickbase rate limiting prevented retrieval of {resource}."
+        elif isinstance(cause, QuickbaseNotFoundError):
+            summary = f"Quickbase could not find the requested {resource}."
+        elif isinstance(cause, QuickbaseTransportError):
+            summary = f"A network or timeout failure prevented retrieval of {resource}."
+        elif isinstance(cause, QuickbaseHTTPError):
+            summary = f"Quickbase rejected the request for {resource}."
+        else:
+            summary = f"Failed to fetch {resource} while compiling the schema."
+
+        context = {
+            "operation": "SchemaExporter.compile_schema",
+            "app_id": app_id,
+            "table_id": table_id,
+            "resource": resource,
+        }
+        raise QuickbaseSchemaError(
+            format_error_message(
+                summary,
+                **context,
+                cause=cause,
+            ),
+            context=context,
+            cause=cause,
+        ) from cause
 
     def compile_schema(
         self,
         app_id: str,
         *,
         table_id: str | None = None,
-        request_interval: float = DEFAULT_REQUEST_INTERVAL_SECONDS,
     ) -> Dict[str, Any]:
         """Compile an application's structural schema.
 
         The compiled schema contains application metadata, tables, fields,
         formulas, and relationships for which each table is the child. When
-        ``table_id`` is supplied, only that table is compiled. Requests are
-        paced by default to avoid exceeding Quickbase's documented general
-        API rate limit.
+        ``table_id`` is supplied, only that table is compiled.
 
         Args:
             app_id: Quickbase application ID.
             table_id: Optional Quickbase table ID to compile by itself.
-            request_interval: Minimum seconds between schema lookup requests.
-                Set to ``0`` to disable pacing.
 
         Returns:
             A dictionary containing the compiled application schema. A
@@ -178,8 +221,7 @@ class SchemaExporter:
             ``tables``.
 
         Raises:
-            QuickbaseValidationError: If ``table_id`` is empty or
-                ``request_interval`` is invalid.
+            QuickbaseValidationError: If ``table_id`` is empty.
             QuickbaseSchemaError: If Quickbase returns invalid table metadata,
                 or if fields or relationships cannot be retrieved.
             QuickbaseError: If application or table retrieval fails.
@@ -193,44 +235,13 @@ class SchemaExporter:
                 )
             )
 
-        if (
-            isinstance(request_interval, bool)
-            or not isinstance(request_interval, (int, float))
-            or not math.isfinite(request_interval)
-            or request_interval < 0
-        ):
-            raise QuickbaseValidationError(
-                format_error_message(
-                    "request_interval must be a finite, non-negative number.",
-                    operation="SchemaExporter.compile_schema",
-                    app_id=app_id,
-                    request_interval=request_interval,
-                )
-            )
-        request_interval = float(request_interval)
-
         logger.info(
             "Compiling schema structure for app %s%s",
             app_id,
             f", table {table_id}" if table_id is not None else "",
         )
 
-        last_request_started_at: float | None = None
-
-        def wait_for_request_slot() -> None:
-            """Wait until the next schema lookup can start."""
-            nonlocal last_request_started_at
-
-            now = time.monotonic()
-            if last_request_started_at is not None:
-                remaining = request_interval - (now - last_request_started_at)
-                if remaining > 0:
-                    time.sleep(remaining)
-                    now = time.monotonic()
-            last_request_started_at = now
-
         app_ref = self.api_client.app(id=app_id)
-        wait_for_request_slot()
         app_details = app_ref.get_details()
 
         schema: Dict[str, Any] = {
@@ -242,20 +253,11 @@ class SchemaExporter:
 
         if table_id is not None:
             table_ref = app_ref.table(id=table_id)
-            wait_for_request_slot()
             table_info = dict(table_ref.get_details())
             table_info["id"] = table_id
-            schema["tables"].append(
-                self._compile_table(
-                    app_id,
-                    table_info,
-                    table_ref,
-                    wait_for_request_slot,
-                )
-            )
+            schema["tables"].append(self._compile_table(app_id, table_info, table_ref))
             return schema
 
-        wait_for_request_slot()
         for table_info in app_ref.list_tables():
             listed_table_id = table_info.get("id")
             if listed_table_id is None:
@@ -268,14 +270,7 @@ class SchemaExporter:
                     )
                 )
             table_ref = app_ref.table(id=str(listed_table_id))
-            schema["tables"].append(
-                self._compile_table(
-                    app_id,
-                    table_info,
-                    table_ref,
-                    wait_for_request_slot,
-                )
-            )
+            schema["tables"].append(self._compile_table(app_id, table_info, table_ref))
 
         return schema
 

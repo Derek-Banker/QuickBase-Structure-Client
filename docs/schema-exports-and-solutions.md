@@ -35,20 +35,6 @@ The single-table form fetches that table directly instead of listing and compili
 It returns the same schema shape with exactly one item in `tables`, so the JSON and Markdown
 renderers work without special handling.
 
-Full application exports can issue many requests. The exporter spaces schema lookups by 0.11
-seconds by default to remain below
-[Quickbase's general limit](https://developer.quickbase.com/rateLimit) of 100 API calls per 10
-seconds per user token. Override the interval when needed:
-
-```python
-schema = client.exporter.compile_schema(
-    "app-id",
-    request_interval=0.2,
-)
-```
-
-Set `request_interval=0` only when pacing is handled elsewhere.
-
 The result has this shape:
 
 ```json
@@ -91,9 +77,17 @@ metadata, table metadata, field IDs, labels, types, formulas, unique/required fl
 selected relationship metadata. It is not a complete serialization of every Quickbase
 setting.
 
+Quickbase authorizes relationship metadata separately from app, table, and field reads. A user
+token can therefore read most of an app but receive HTTP 403 for a particular table's
+relationship endpoint. Ensure the user associated with the token has sufficient structural
+permissions for every exported table. For cross-application relationships, also verify that
+user's access to the related applications.
+
 If a table lacks an ID, or field or relationship retrieval fails, compilation raises
-`QuickbaseSchemaError`. The error includes the underlying failure cause, and the exporter does
-not silently return a partial schema.
+`QuickbaseSchemaError`. Permission, authentication, rate-limit, not-found, and transport
+failures receive distinct summaries. Inspect `error.context` for the app, table, and resource,
+and `error.cause` for the original package exception such as `QuickbasePermissionError`. The
+exporter does not silently return a partial schema.
 
 ## Render JSON Or Markdown
 
