@@ -154,21 +154,26 @@ Catch `QuickbaseError` for package-level failures, or catch a specific subclass:
 from quickbase_structure_client import (
     QuickbaseAuthError,
     QuickbaseError,
+    QuickbasePermissionError,
     QuickbaseRateLimitError,
 )
 
 try:
     app.get_details()
+except QuickbasePermissionError:
+    print("The token is valid, but its user lacks permission for this resource.")
 except QuickbaseAuthError:
-    print("Check the realm, token assignment, and permissions.")
+    print("Check the realm hostname and user token.")
 except QuickbaseRateLimitError:
     print("Quickbase continued to rate limit after configured retries.")
 except QuickbaseError as exc:
     print(f"Quickbase operation failed: {exc}")
 ```
 
-The request layer maps terminal HTTP and transport failures to package exceptions. It redacts
-the configured user token from error response previews.
+The request layer maps terminal HTTP and transport failures to package exceptions. Catch
+`QuickbasePermissionError` before `QuickbaseAuthError` because it is a more specific subclass.
+Exceptions expose structured `context`, and wrapper exceptions expose their translated
+`cause`. The configured user token is redacted from error response previews.
 
 ## Next Steps
 

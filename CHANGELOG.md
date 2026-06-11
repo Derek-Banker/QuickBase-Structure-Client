@@ -5,12 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] [0.1.4] - 2026-06-10
+## [Unreleased]
+
+## [0.1.5] - 2026-06-11
+
+### Added
+
+- Add `QuickbasePermissionError` for HTTP 403 responses while retaining compatibility with
+  `QuickbaseAuthError` handlers.
+- Add structured `context` and `cause` attributes to package exceptions.
+- Add project, repository, and issue tracker URLs to package metadata.
+
+### Changed
+
+- Give schema lookup failures resource-specific summaries for permission, authentication,
+  rate-limit, not-found, HTTP, and transport errors.
 
 ### Fixed
 
-- Pace schema lookup requests during large exports to avoid Quickbase's general API rate limit,
-  and include the underlying request failure in schema compilation errors.
+- Remove schema request pacing introduced in 0.1.4 after diagnostics identified permission
+  denial, rather than request rate, as the large-app export failure.
+- Populate the documented `cause` attribute on terminal HTTP exceptions.
+- Include the changelog, documentation, and examples in source distributions.
+
+## [0.1.4] - 2026-06-10
+
+### Fixed
+
+- Include the underlying request failure in schema compilation errors, including permission
+  denials from field and relationship endpoints.
 
 ## [0.1.3] - 2026-06-09
 

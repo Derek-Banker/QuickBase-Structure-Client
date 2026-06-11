@@ -408,7 +408,6 @@ exporter.compile_schema(
     app_id: str,
     *,
     table_id: str | None = None,
-    request_interval: float = 0.11,
 ) -> dict[str, Any]
 exporter.to_json(
     schema: dict[str, Any],
@@ -422,11 +421,6 @@ exporter.to_markdown(
 
 Supplying `table_id` compiles only that table and returns the normal app-shaped schema with one
 entry in `tables`.
-
-Schema lookups are spaced by 0.11 seconds by default to keep large exports below
-[Quickbase's general API rate limit](https://developer.quickbase.com/rateLimit). Set
-`request_interval=0` to disable pacing, or use a larger interval when the same user token is
-shared with other integrations.
 
 Compilation raises `QuickbaseSchemaError` instead of returning a partial schema when table
 field or relationship retrieval fails. The error message includes the underlying HTTP,
@@ -442,13 +436,19 @@ All package exceptions derive from `QuickbaseError`.
 | `QuickbaseConfigurationError` | Invalid local client or request configuration |
 | `QuickbaseTransportError` | Exhausted network or timeout retries |
 | `QuickbaseHTTPError` | Other terminal unsuccessful HTTP response |
-| `QuickbaseAuthError` | HTTP 401 or 403 |
+| `QuickbaseAuthError` | HTTP 401 authentication failure |
+| `QuickbasePermissionError` | HTTP 403 authorization failure |
 | `QuickbaseRateLimitError` | HTTP 429 after retries |
 | `QuickbaseNotFoundError` | HTTP 404 |
 | `QuickbasePayloadError` | Invalid request or response payload content |
 | `QuickbaseSchemaError` | Schema lookup or compilation failure |
 | `QuickbaseBackupError` | Pre-change or post-change backup failure |
 
+Every package exception exposes a `context: dict[str, Any]` attribute. Wrapper exceptions also
+set `cause` when an underlying exception was translated. This allows callers to inspect status
+codes and causes without parsing the formatted message.
+
 `QuickbaseValidationError` also derives from `ValueError`.
 `QuickbaseConfigurationError` and `QuickbasePayloadError` derive from
 `QuickbaseValidationError`. `QuickbaseAuthError` also derives from `PermissionError`.
+`QuickbasePermissionError` derives from `QuickbaseAuthError`.

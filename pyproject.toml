@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quickbase-structure-client"
-version = "0.1.4"
+version = "0.1.5"
 description = "Python client for Quickbase structural operations, trustees management, schema backups, and schema exporting"
 authors = [{ name = "Derek Banker", email = "dbb2002@gmail.com" }]
 readme = "README.md"
@@ -20,6 +20,11 @@ classifiers = [
 dependencies = [
     "requests",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Derek-Banker/QuickBase-Structure-Client"
+Repository = "https://github.com/Derek-Banker/QuickBase-Structure-Client"
+Issues = "https://github.com/Derek-Banker/QuickBase-Structure-Client/issues"
 
 [project.optional-dependencies]
 dev = [

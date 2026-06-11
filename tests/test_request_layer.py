@@ -6,9 +6,11 @@ import pytest
 import requests
 
 import quickbase_structure_client.quickbase_api as quickbase_api_module
+from quickbase_structure_client import __version__
 from quickbase_structure_client.exceptions import (
     QuickbaseAuthError,
     QuickbaseConfigurationError,
+    QuickbasePermissionError,
     QuickbaseTransportError,
 )
 from quickbase_structure_client.quickbase_api import (
@@ -20,6 +22,11 @@ from quickbase_structure_client.quickbase_api import (
 )
 
 from .conftest import FakeResponse
+
+
+def test_public_version_matches_default_user_agent() -> None:
+    assert __version__ == "0.1.5"
+    assert quickbase_api_module.DEFAULT_USER_AGENT["Version"] == __version__
 
 
 def test_auth_normalizes_realm_hostname_and_user_token_prefix() -> None:
@@ -204,8 +211,45 @@ def test_http_error_redacts_user_token_from_response_body(monkeypatch) -> None:
     with pytest.raises(QuickbaseAuthError) as exc_info:
         api.request(method="GET", endpoint="/apps/app1")
 
+    assert "rejected authentication" in str(exc_info.value)
+    assert exc_info.value.context["status_code"] == 401
     assert user_token not in str(exc_info.value)
     assert "<redacted>" in str(exc_info.value)
+
+
+def test_http_403_raises_permission_error_with_context(monkeypatch) -> None:
+    api = QuickBaseStructureClient(
+        Auth("example.quickbase.com", "token"),
+        request_config=RequestConfig(retry_count=0, jitter=0.0),
+        auto_backup=False,
+    )
+    monkeypatch.setattr(
+        api.session,
+        "request",
+        Mock(
+            return_value=FakeResponse(
+                status_code=403,
+                text='{"message":"Insufficient permissions"}',
+            )
+        ),
+    )
+
+    with pytest.raises(QuickbasePermissionError) as exc_info:
+        api.request(method="GET", endpoint="/tables/table1/relationships")
+
+    assert isinstance(exc_info.value, QuickbaseAuthError)
+    assert "denied access" in str(exc_info.value)
+    assert isinstance(exc_info.value.cause, requests.HTTPError)
+    assert exc_info.value.context == {
+        "operation": "QuickBaseStructureClient.request",
+        "endpoint": "/tables/table1/relationships",
+        "method": "GET",
+        "status_code": 403,
+        "attempts": 1,
+        "retry_count": 0,
+        "retry_after": None,
+        "response_body": '{"message":"Insufficient permissions"}',
+    }
 
 
 def test_clone_backup_is_suppressed_during_backup_operations(monkeypatch) -> None:

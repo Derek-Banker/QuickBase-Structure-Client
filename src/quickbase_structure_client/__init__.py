@@ -11,6 +11,7 @@ from .exceptions import (
     QuickbaseHTTPError,
     QuickbaseNotFoundError,
     QuickbasePayloadError,
+    QuickbasePermissionError,
     QuickbaseRateLimitError,
     QuickbaseSchemaError,
     QuickbaseTransportError,
@@ -30,7 +31,7 @@ from .solutions import SolutionsManager
 from .table import StructureTable
 from .trustees import TrusteesManager
 
-__version__ = "0.1.2"
+__version__ = "0.1.5"
 
 __all__ = [
     "__version__",
@@ -52,6 +53,7 @@ __all__ = [
     "QuickbaseTransportError",
     "QuickbaseHTTPError",
     "QuickbaseAuthError",
+    "QuickbasePermissionError",
     "QuickbaseRateLimitError",
     "QuickbaseSchemaError",
     "QuickbaseNotFoundError",

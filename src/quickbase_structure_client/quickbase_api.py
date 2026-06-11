@@ -27,6 +27,7 @@ from quickbase_structure_client.exceptions import (
     QuickbaseError,
     QuickbaseHTTPError,
     QuickbaseNotFoundError,
+    QuickbasePermissionError,
     QuickbaseRateLimitError,
     QuickbaseTransportError,
     format_error_message,
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 # DEFAULT USER AGENT CONFIG
 DEFAULT_USER_AGENT: Dict[str, str] = {
     "Base": "QuickBase-Structure-Client",
-    "Version": "0.1.2",
+    "Version": "0.1.5",
     "Suffix": "Auth",
     "Separator": "-",
 }
@@ -853,7 +854,8 @@ class QuickBaseStructureClient:
             attempts: Total number of attempts made.
 
         Raises:
-            QuickbaseAuthError: If Quickbase returns HTTP 401 or 403.
+            QuickbaseAuthError: If Quickbase returns HTTP 401.
+            QuickbasePermissionError: If Quickbase returns HTTP 403.
             QuickbaseNotFoundError: If Quickbase returns HTTP 404.
             QuickbaseRateLimitError: If Quickbase returns HTTP 429.
             QuickbaseHTTPError: For other unsuccessful status codes.
@@ -864,30 +866,42 @@ class QuickBaseStructureClient:
         retry_after = headers.get("Retry-After") if isinstance(headers, Mapping) else None
 
         error_cls: type[QuickbaseError] = QuickbaseHTTPError
-        if status_code in {401, 403}:
+        summary = "Quickbase request failed."
+        if status_code == 401:
             error_cls = QuickbaseAuthError
+            summary = "Quickbase rejected authentication."
+        elif status_code == 403:
+            error_cls = QuickbasePermissionError
+            summary = "Quickbase denied access to the requested resource."
         elif status_code == 404:
             error_cls = QuickbaseNotFoundError
+            summary = "The requested Quickbase resource was not found."
         elif status_code == 429:
             error_cls = QuickbaseRateLimitError
+            summary = "Quickbase rate limiting persisted after retries."
 
         http_error = requests.HTTPError(
             f"Quickbase returned HTTP {status_code} for {method} {endpoint}",
             response=response,
         )
+        context: Dict[str, Any] = {
+            "operation": "QuickBaseStructureClient.request",
+            "endpoint": endpoint,
+            "method": method,
+            "status_code": status_code,
+            "attempts": attempts,
+            "retry_count": self.request_config.retry_count,
+            "retry_after": retry_after,
+            "response_body": response_body,
+        }
         raise error_cls(
             format_error_message(
-                "Quickbase request failed.",
-                operation="QuickBaseStructureClient.request",
-                endpoint=endpoint,
-                method=method,
-                status_code=status_code,
-                attempts=attempts,
-                retry_count=self.request_config.retry_count,
-                retry_after=retry_after,
-                response_body=response_body,
+                summary,
+                **context,
                 cause=http_error,
-            )
+            ),
+            context=context,
+            cause=http_error,
         ) from http_error
 
     def request(
@@ -917,7 +931,8 @@ class QuickBaseStructureClient:
             A successful Quickbase HTTP response.
 
         Raises:
-            QuickbaseAuthError: If authentication or authorization fails.
+            QuickbaseAuthError: If authentication fails.
+            QuickbasePermissionError: If authorization fails.
             QuickbaseNotFoundError: If the requested resource does not exist.
             QuickbaseRateLimitError: If rate limiting persists after retries.
             QuickbaseHTTPError: If another unsuccessful HTTP response is
