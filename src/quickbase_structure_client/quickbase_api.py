@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # DEFAULT USER AGENT CONFIG
 DEFAULT_USER_AGENT: Dict[str, str] = {
     "Base": "QuickBase-Structure-Client",
-    "Version": "0.1.5",
+    "Version": "0.1.6",
     "Suffix": "Auth",
     "Separator": "-",
 }

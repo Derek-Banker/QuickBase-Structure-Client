@@ -42,6 +42,18 @@ class SchemaExporter:
         self.api_client = api_client
 
     @staticmethod
+    def _has_detail_value(value: Any) -> bool:
+        """Return whether a value should be rendered as schema detail.
+
+        Args:
+            value: Value to inspect.
+
+        Returns:
+            ``True`` when the value contains visible detail.
+        """
+        return value is not None and value != "" and value != [] and value != {}
+
+    @staticmethod
     def _markdown_cell(value: Any) -> str:
         """Escape a value for use in a Markdown table cell.
 
@@ -54,6 +66,144 @@ class SchemaExporter:
         if value is None:
             return ""
         return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+    @staticmethod
+    def _copy_mapping(value: Any) -> Dict[str, Any]:
+        """Return a shallow copy when ``value`` is a dictionary.
+
+        Args:
+            value: Candidate mapping value.
+
+        Returns:
+            A copied dictionary, or an empty dictionary for non-dictionaries.
+        """
+        if isinstance(value, dict):
+            return dict(value)
+        return {}
+
+    @classmethod
+    def _extract_field_choices(cls, properties: Dict[str, Any]) -> Any:
+        """Extract field choices from Quickbase field properties.
+
+        Args:
+            properties: Field ``properties`` dictionary returned by Quickbase.
+
+        Returns:
+            The choices value when present, otherwise ``None``.
+        """
+        choices = properties.get("choices")
+        if cls._has_detail_value(choices):
+            return choices
+        return None
+
+    @classmethod
+    def _extract_query_values(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract query-like values while preserving Quickbase key names.
+
+        Args:
+            values: Metadata dictionary returned by Quickbase.
+
+        Returns:
+            Query-like key/value pairs, such as ``query``, ``where``, or
+            ``summaryQuery``.
+        """
+        query_values: Dict[str, Any] = {}
+        for key, value in values.items():
+            normalized_key = key.lower()
+            if not cls._has_detail_value(value):
+                continue
+            if (
+                "query" in normalized_key
+                or "criteria" in normalized_key
+                or normalized_key == "where"
+            ):
+                query_values[key] = value
+        return query_values
+
+    @classmethod
+    def _format_detail_value(cls, value: Any) -> str:
+        """Format a schema detail value for compact Markdown rendering.
+
+        Args:
+            value: Detail value to format.
+
+        Returns:
+            A readable string representation.
+        """
+        if isinstance(value, list):
+            return "; ".join(cls._format_detail_value(item) for item in value)
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        return str(value)
+
+    @classmethod
+    def _format_query_details(cls, queries: Dict[str, Any]) -> str:
+        """Format query-like values for Markdown details.
+
+        Args:
+            queries: Query-like key/value pairs.
+
+        Returns:
+            A compact query detail string.
+        """
+        if len(queries) == 1:
+            return cls._format_detail_value(next(iter(queries.values())))
+        return "; ".join(
+            f"{key}={cls._format_detail_value(value)}" for key, value in queries.items()
+        )
+
+    def _field_detail_parts(self, field: Dict[str, Any]) -> List[str]:
+        """Build Markdown details for a compiled field.
+
+        Args:
+            field: Field schema entry produced by :meth:`compile_schema`.
+
+        Returns:
+            Ordered detail fragments.
+        """
+        details_parts = []
+        if field.get("required"):
+            details_parts.append("Required")
+        if field.get("unique"):
+            details_parts.append("Unique")
+        if field.get("formula"):
+            details_parts.append(f"Formula: `{field['formula']}`")
+        if self._has_detail_value(field.get("choices")):
+            choices = self._format_detail_value(field["choices"])
+            details_parts.append(f"Choices: {choices}")
+
+        queries = self._copy_mapping(field.get("queries"))
+        if queries:
+            details_parts.append(f"Query: `{self._format_query_details(queries)}`")
+
+        return details_parts
+
+    def _relationship_summary_details(self, summary_field: Dict[str, Any]) -> str:
+        """Build Markdown details for a relationship summary field.
+
+        Args:
+            summary_field: Summary field metadata returned by Quickbase.
+
+        Returns:
+            A compact Markdown sentence fragment.
+        """
+        summary_id = (
+            summary_field.get("summaryFid")
+            or summary_field.get("summaryFieldId")
+            or summary_field.get("fieldId")
+            or "unknown"
+        )
+        details = [f"summary field ID `{summary_id}`"]
+
+        label = summary_field.get("label") or summary_field.get("summaryFieldLabel")
+        if label:
+            details.append(str(label))
+
+        queries = self._extract_query_values(summary_field)
+        if queries:
+            details.append(f"Query: `{self._format_query_details(queries)}`")
+
+        return " - ".join(details)
 
     def _compile_table(
         self,
@@ -97,13 +247,15 @@ class SchemaExporter:
 
         try:
             for field_info in table_ref.list_fields():
-                properties = field_info.get("properties", {})
+                properties = self._copy_mapping(field_info.get("properties"))
                 table_schema["fields"].append(
                     {
                         "id": field_info.get("id"),
                         "label": field_info.get("label"),
                         "type": field_info.get("fieldType"),
                         "formula": properties.get("formula"),
+                        "choices": self._extract_field_choices(properties),
+                        "queries": self._extract_query_values(properties),
                         "unique": field_info.get(
                             "unique",
                             properties.get("unique", False),
@@ -112,6 +264,7 @@ class SchemaExporter:
                             "required",
                             properties.get("required", False),
                         ),
+                        "properties": properties,
                     }
                 )
         except Exception as exc:
@@ -131,6 +284,7 @@ class SchemaExporter:
                         "parent_table_name": relationship.get("parentTableName"),
                         "reference_field_id": relationship.get("referenceFieldId"),
                         "reference_field_label": relationship.get("referenceFieldLabel"),
+                        "summary_fields": relationship.get("summaryFields") or [],
                     }
                 )
         except Exception as exc:
@@ -208,7 +362,8 @@ class SchemaExporter:
         """Compile an application's structural schema.
 
         The compiled schema contains application metadata, tables, fields,
-        formulas, and relationships for which each table is the child. When
+        formulas, field choices, query-like field properties, raw field
+        properties, and relationships for which each table is the child. When
         ``table_id`` is supplied, only that table is compiled.
 
         Args:
@@ -337,18 +492,11 @@ class SchemaExporter:
             lines.append("")
 
             lines.append("#### Fields List")
-            lines.append("| Field ID | Label | Field Type | Details / Formula |")
+            lines.append("| Field ID | Label | Field Type | Details |")
             lines.append("|---|---|---|---|")
 
             for field in table["fields"]:
-                details_parts = []
-                if field.get("required"):
-                    details_parts.append("Required")
-                if field.get("unique"):
-                    details_parts.append("Unique")
-                if field.get("formula"):
-                    details_parts.append(f"Formula: `{field['formula']}`")
-
+                details_parts = self._field_detail_parts(field)
                 details = ", ".join(details_parts) if details_parts else "-"
                 lines.append(
                     "| "
@@ -376,6 +524,17 @@ class SchemaExporter:
                         f"via reference field ID `{relationship.get('reference_field_id')}` "
                         f"({reference_label})."
                     )
+                    summary_fields = relationship.get("summary_fields", [])
+                    if summary_fields:
+                        summary_details = [
+                            self._relationship_summary_details(summary_field)
+                            for summary_field in summary_fields
+                            if isinstance(summary_field, dict)
+                        ]
+                        if summary_details:
+                            lines.append(
+                                f"  - Summary fields: {'; '.join(summary_details)}."
+                            )
                 lines.append("")
 
             lines.append("---")

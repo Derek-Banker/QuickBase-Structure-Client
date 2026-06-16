@@ -422,6 +422,10 @@ exporter.to_markdown(
 Supplying `table_id` compiles only that table and returns the normal app-shaped schema with one
 entry in `tables`.
 
+Compiled fields include extracted formulas, choices, query-like properties, unique/required
+flags, and the raw Quickbase field `properties` dictionary. Compiled relationships include
+relationship `summaryFields` when Quickbase returns them.
+
 Compilation raises `QuickbaseSchemaError` instead of returning a partial schema when table
 field or relationship retrieval fails. The error message includes the underlying HTTP,
 transport, or parsing cause.

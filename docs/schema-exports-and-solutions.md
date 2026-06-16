@@ -54,8 +54,11 @@ The result has this shape:
           "label": "Total",
           "type": "currency",
           "formula": null,
+          "choices": null,
+          "queries": {},
           "unique": false,
-          "required": false
+          "required": false,
+          "properties": {}
         }
       ],
       "relationships": [
@@ -64,7 +67,8 @@ The result has this shape:
           "parent_table_id": "parent-table-id",
           "parent_table_name": "Customers",
           "reference_field_id": 12,
-          "reference_field_label": "Customer"
+          "reference_field_label": "Customer",
+          "summary_fields": []
         }
       ]
     }
@@ -73,9 +77,10 @@ The result has this shape:
 ```
 
 Relationships are listed for tables acting as child tables. The exporter includes application
-metadata, table metadata, field IDs, labels, types, formulas, unique/required flags, and
-selected relationship metadata. It is not a complete serialization of every Quickbase
-setting.
+metadata, table metadata, field IDs, labels, types, formulas, choice lists, query-like field
+properties, unique/required flags, the raw field `properties` dictionary returned by
+Quickbase, selected relationship metadata, and relationship `summaryFields` data. It is still
+not a complete serialization of every Quickbase setting.
 
 Quickbase authorizes relationship metadata separately from app, table, and field reads. A user
 token can therefore read most of an app but receive HTTP 403 for a particular table's
@@ -108,7 +113,8 @@ client.exporter.to_markdown(schema, Path("exports/app_schema.md"))
 ```
 
 Parent directories are created automatically. Generated Markdown escapes pipes, backslashes,
-and newlines used in table cells.
+and newlines used in table cells. Field details show formulas, choices, and query-like
+properties when Quickbase returns them.
 
 ## Schema Export Command
 

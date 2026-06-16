@@ -67,7 +67,8 @@ print(client.exporter.to_markdown(schema))
 ## Schema Export
 
 Use the standalone example to export an existing application's tables, fields,
-formulas, and relationships to both JSON and Markdown:
+field properties, formulas, choices, query-like details, and relationships to
+both JSON and Markdown:
 
 ```powershell
 $env:QUICKBASE_REALM_HOSTNAME = "example.quickbase.com"

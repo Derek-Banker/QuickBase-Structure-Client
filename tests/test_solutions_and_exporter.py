@@ -79,8 +79,33 @@ def test_schema_exporter_compiles_json_and_escapes_markdown() -> None:
                         "label": "Total | Net",
                         "type": "formula-numeric",
                         "formula": "If([A] | [B], 1, 0)",
+                        "choices": None,
+                        "queries": {},
                         "unique": False,
                         "required": True,
+                        "properties": {"formula": "If([A] | [B], 1, 0)"},
+                    },
+                    {
+                        "id": 8,
+                        "label": "Status",
+                        "type": "multiple-choice",
+                        "formula": None,
+                        "choices": ["New", "In Progress", "Closed"],
+                        "queries": {},
+                        "unique": False,
+                        "required": False,
+                        "properties": {"choices": ["New", "In Progress", "Closed"]},
+                    },
+                    {
+                        "id": 9,
+                        "label": "Open Child Total",
+                        "type": "summary",
+                        "formula": None,
+                        "choices": None,
+                        "queries": {"summaryQuery": "{6.EX.'Open'}"},
+                        "unique": False,
+                        "required": False,
+                        "properties": {"summaryQuery": "{6.EX.'Open'}"},
                     }
                 ],
                 "relationships": [
@@ -89,6 +114,13 @@ def test_schema_exporter_compiles_json_and_escapes_markdown() -> None:
                         "parent_table_id": "customers",
                         "reference_field_id": 12,
                         "reference_field_label": "Customer",
+                        "summary_fields": [
+                            {
+                                "summaryFid": 9,
+                                "summaryFieldLabel": "Open Child Total",
+                                "where": "{6.EX.'Open'}",
+                            }
+                        ],
                     }
                 ],
             }
@@ -102,7 +134,10 @@ def test_schema_exporter_compiles_json_and_escapes_markdown() -> None:
     assert '"app_id": "app1"' in json_export
     assert "Total \\| Net" in markdown
     assert "If([A] \\| [B], 1, 0)" in markdown
+    assert "Choices: New; In Progress; Closed" in markdown
+    assert "Query: `{6.EX.'Open'}`" in markdown
     assert "Links to parent table **Customers**" in markdown
+    assert "summary field ID `9`" in markdown
 
 
 def test_schema_exporter_raises_instead_of_returning_partial_schema() -> None:
@@ -231,6 +266,25 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
                         "label": "Total",
                         "fieldType": "currency",
                         "properties": {"required": True},
+                    },
+                    {
+                        "id": 8,
+                        "label": "Status",
+                        "fieldType": "multiple-choice",
+                        "properties": {
+                            "choices": ["New", "Closed"],
+                            "allowNewChoices": False,
+                        },
+                    },
+                    {
+                        "id": 9,
+                        "label": "Open Child Total",
+                        "fieldType": "summary",
+                        "properties": {
+                            "summaryFunction": "SUM",
+                            "summaryQuery": "{6.EX.'Open'}",
+                            "summaryTableId": "child-table",
+                        },
                     }
                 ]
             ),
@@ -243,6 +297,13 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
                             "parentTableName": "Customers",
                             "referenceFieldId": 12,
                             "referenceFieldLabel": "Customer",
+                            "summaryFields": [
+                                {
+                                    "summaryFid": 9,
+                                    "summaryFieldLabel": "Open Child Total",
+                                    "where": "{6.EX.'Open'}",
+                                }
+                            ],
                         }
                     ]
                 }
@@ -269,8 +330,40 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
                         "label": "Total",
                         "type": "currency",
                         "formula": None,
+                        "choices": None,
+                        "queries": {},
                         "unique": False,
                         "required": True,
+                        "properties": {"required": True},
+                    },
+                    {
+                        "id": 8,
+                        "label": "Status",
+                        "type": "multiple-choice",
+                        "formula": None,
+                        "choices": ["New", "Closed"],
+                        "queries": {},
+                        "unique": False,
+                        "required": False,
+                        "properties": {
+                            "choices": ["New", "Closed"],
+                            "allowNewChoices": False,
+                        },
+                    },
+                    {
+                        "id": 9,
+                        "label": "Open Child Total",
+                        "type": "summary",
+                        "formula": None,
+                        "choices": None,
+                        "queries": {"summaryQuery": "{6.EX.'Open'}"},
+                        "unique": False,
+                        "required": False,
+                        "properties": {
+                            "summaryFunction": "SUM",
+                            "summaryQuery": "{6.EX.'Open'}",
+                            "summaryTableId": "child-table",
+                        },
                     }
                 ],
                 "relationships": [
@@ -280,6 +373,13 @@ def test_schema_exporter_compiles_only_requested_table() -> None:
                         "parent_table_name": "Customers",
                         "reference_field_id": 12,
                         "reference_field_label": "Customer",
+                        "summary_fields": [
+                            {
+                                "summaryFid": 9,
+                                "summaryFieldLabel": "Open Child Total",
+                                "where": "{6.EX.'Open'}",
+                            }
+                        ],
                     }
                 ],
             }
