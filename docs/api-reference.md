@@ -26,6 +26,10 @@ Auth(
 
 Stores normalized realm and token values and builds authenticated headers.
 
+The realm and token must be nonempty after normalization.
+The normalized user token must contain visible ASCII characters without internal whitespace.
+Control characters and non-ASCII characters raise `QuickbaseConfigurationError` before a request.
+
 Properties and methods:
 
 | Member | Description |
@@ -138,6 +142,10 @@ client.request(
     payload: dict[str, Any] | list[Any] | str | bytes | None = None,
     headers: Mapping[str, str] | None = None,
     app_id_for_backup: str | None = None,
+    app_ids_for_backup: list[str] | None = None,
+    solution_id_for_backup: str | None = None,
+    xml_action: str | None = None,
+    app_token: str | None = None,
 ) -> requests.Response
 
 client.suppress_auto_backup() -> ContextManager[None]
@@ -233,6 +241,11 @@ table.update(
     description: str | None = None,
 ) -> dict[str, Any]
 table.delete() -> None
+table.set_key_field(
+    field_id: int | str,
+    *,
+    app_token: str | None = None,
+) -> dict[str, str]
 ```
 
 Field operations:
@@ -242,6 +255,8 @@ table.field(id: int | str, label: str | None = None) -> StructureField
 table.create_field(
     label: str,
     field_type: str,
+    options: dict[str, Any] | None = None,
+    *,
     properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]
 table.list_fields(
@@ -249,8 +264,20 @@ table.list_fields(
 ) -> list[dict[str, Any]]
 table.update_field(
     field_id: int | str,
-    properties: dict[str, Any],
+    options: dict[str, Any] | None = None,
+    *,
+    properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]
+table.get_fields_usage(
+    skip: int | None = None,
+    top: int | None = None,
+) -> list[dict[str, Any]]
+table.update_field_xml(
+    field_id: int | str,
+    options: dict[str, Any],
+    *,
+    app_token: str | None = None,
+) -> dict[str, str]
 table.delete_fields(
     field_ids: list[int | str],
 ) -> dict[str, Any]
@@ -274,6 +301,17 @@ table.delete_relationship(
 ```
 
 Table mutations require a known `app_id`. Read-only field and relationship listing does not.
+Table operations validate table IDs before requests and application IDs before mutations.
+These IDs must contain only ASCII letters and digits. Validation does not prove that a resource exists.
+
+`get_fields_usage` returns one page of usage data. `skip` must be a nonnegative integer.
+`top` must be a positive integer. Boolean values are invalid for either argument.
+The method does not fetch additional pages or trigger backups.
+
+`set_key_field` calls Quickbase's XML
+[`API_SetKeyField`](https://help.quickbase.com/docs/api-setkeyfield).
+The selected field must support unique values. Existing values must be unique and nonblank.
+Quickbase checks field eligibility and administrator permissions.
 
 ## Fields
 
@@ -294,19 +332,84 @@ Methods:
 field.create(
     label: str,
     field_type: str,
+    options: dict[str, Any] | None = None,
+    *,
     properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]
 field.get_details(
     include_field_perms: bool = False,
 ) -> dict[str, Any]
 field.update(
-    properties: dict[str, Any],
+    options: dict[str, Any] | None = None,
+    *,
+    properties: dict[str, Any] | None = None,
 ) -> dict[str, Any]
+field.get_usage() -> list[dict[str, Any]]
+field.update_xml(
+    options: dict[str, Any],
+    *,
+    app_token: str | None = None,
+) -> dict[str, str]
 field.delete() -> dict[str, Any]
 ```
 
-`create` and `update` accept `description` as an alias for `fieldHelp`. Mutations require
-`app_id` when automatic backup is enabled. Deletion clears the wrapper's field ID.
+`options` contains the whole REST request body for field creation or updates.
+Quickbase's type-specific `properties` object remains nested inside that body:
+
+```python
+field.update(
+    options={
+        "required": True,
+        "properties": {
+            "choices": ["Pending", "Approved"],
+            "allowNewChoices": False,
+        },
+    },
+)
+```
+
+The legacy `properties=` keyword remains an alias for `options=`. Existing positional calls
+also work. Supplying both arguments raises `QuickbaseValidationError`.
+The nested REST key `properties` does not change.
+
+`create` and `update` accept `description` as an alias for `fieldHelp`.
+If both keys are present, `fieldHelp` wins and the client removes `description`.
+The client validates the body and nested `properties` as dictionaries.
+Field creation requires nonempty string values for `label` and `fieldType` after option overrides.
+Field IDs must be positive integers or strings of ASCII decimal digits.
+Boolean and fractional field IDs raise `QuickbaseValidationError` before a request.
+Quickbase validates individual REST options and their compatibility with the field type.
+`required` and `unique` are update options. The REST creation endpoint does not accept them.
+Mutations require `app_id` when automatic backup is enabled. Deletion clears the wrapper's
+field ID.
+
+`get_usage` returns Quickbase's list of usage entries for the bound field without backups.
+The single-field endpoint also returns a list. Each entry contains `field` and `usage` objects.
+
+### XML Field Updates
+
+`update_xml` calls
+[`API_SetFieldProperties`](https://help.quickbase.com/docs/api-setfieldproperties).
+Its keys are XML property tags, including their original spelling and capitalization.
+The client validates documented tag names, scalar values, lists, and boolean values.
+Boolean values become `1` or `0`. `choices` accepts a list of strings.
+Empty dictionaries, unsupported tags, and authentication tags raise `QuickbaseValidationError`.
+
+```python
+field.update_xml({"doesdatacopy": False})
+rich_text_field.update_xml({"allowHTML": True})
+```
+
+Quickbase checks field-type applicability and limits for each property. The REST spelling
+`doesDataCopy` is not the XML tag `doesdatacopy`.
+XML methods accept an optional `app_token` for apps that require one.
+They return XML response elements as a dictionary of strings.
+The request layer checks the XML `errcode` before it creates a post-change backup.
+
+Existing field type conversion has no supported wrapper. Quickbase documents this operation
+as a UI change in its [`API_AddField` guidance](https://help.quickbase.com/docs/api-addfield).
+For default table sorting and choice-source references, see
+[QBL updates](schema-exports-and-solutions.md#update-a-solution).
 
 ## Relationships
 
@@ -383,6 +486,19 @@ solutions.create_solution(
     *,
     errors_as_success: bool = False,
 ) -> dict[str, Any]
+solutions.update_solution(
+    solution_id: str,
+    qbl: str,
+    *,
+    app_ids_for_backup: list[str] | None = None,
+    errors_as_success: bool = False,
+) -> dict[str, Any]
+solutions.preview_solution_changes(
+    solution_id: str,
+    qbl: str,
+    *,
+    errors_as_success: bool = False,
+) -> dict[str, Any]
 solutions.export_solution_to_record(
     solution_id: str,
     table_id: str,
@@ -398,6 +514,10 @@ solutions.export_solution_to_file(
 ```
 
 See [Schema Exports and Solutions](schema-exports-and-solutions.md).
+
+`preview_solution_changes` returns proposed changes without applying them or creating backups.
+`update_solution` uses its target Solution ID for schema backups, regardless of the client's
+global `backup_solution_id`.
 
 ## Schema Exporter
 

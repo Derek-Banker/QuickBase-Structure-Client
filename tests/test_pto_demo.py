@@ -111,9 +111,9 @@ class FakeTable:
         self,
         label: str,
         field_type: str,
-        properties: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self.fields.append((label, field_type, properties or {}))
+        self.fields.append((label, field_type, options or {}))
         return {"id": len(self.fields) + 5, "label": label, "fieldType": field_type}
 
     def create_relationship(self, payload: dict[str, Any]) -> dict[str, Any]:

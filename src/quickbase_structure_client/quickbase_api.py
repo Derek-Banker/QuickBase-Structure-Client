@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Literal, Mappin
 
 import requests
 
+from quickbase_structure_client._validation import validate_dbid
+from quickbase_structure_client._xml import build_xml_request, parse_xml_response
 from quickbase_structure_client.config import (
     BASE_URL,
     DEFAULT_REQUEST_TIMEOUT,
@@ -23,13 +26,16 @@ from quickbase_structure_client.config import (
 )
 from quickbase_structure_client.exceptions import (
     QuickbaseAuthError,
+    QuickbaseBackupError,
     QuickbaseConfigurationError,
     QuickbaseError,
     QuickbaseHTTPError,
     QuickbaseNotFoundError,
+    QuickbasePayloadError,
     QuickbasePermissionError,
     QuickbaseRateLimitError,
     QuickbaseTransportError,
+    QuickbaseValidationError,
     format_error_message,
 )
 
@@ -42,7 +48,7 @@ logger = logging.getLogger(__name__)
 # DEFAULT USER AGENT CONFIG
 DEFAULT_USER_AGENT: Dict[str, str] = {
     "Base": "QuickBase-Structure-Client",
-    "Version": "0.1.6",
+    "Version": "1.0.0",
     "Suffix": "Auth",
     "Separator": "-",
 }
@@ -275,10 +281,21 @@ def normalize_user_token(user_token: str) -> str:
 
     Returns:
         The token without the authorization prefix or surrounding whitespace.
+
+    Raises:
+        QuickbaseConfigurationError: If the token is not a string or contains
+            internal whitespace, control characters, or non-ASCII characters.
     """
+    if not isinstance(user_token, str):
+        raise QuickbaseConfigurationError("The Quickbase user token must be a string.")
     token = user_token.strip()
     if token.upper().startswith(USER_TOKEN_AUTH_PREFIX):
         token = token[len(USER_TOKEN_AUTH_PREFIX) :].strip()
+    if any(ord(character) < 33 or ord(character) > 126 for character in token):
+        raise QuickbaseConfigurationError(
+            "The Quickbase user token must contain only visible ASCII characters "
+            "without internal whitespace."
+        )
     return token
 
 
@@ -307,7 +324,7 @@ class Auth:
 
         Raises:
             QuickbaseConfigurationError: If the realm or normalized user token
-                is empty.
+                is empty, or the token contains invalid header characters.
         """
         self.realm = normalize_realm_hostname(realm)
         self.user_token = normalize_user_token(user_token)
@@ -844,6 +861,7 @@ class QuickBaseStructureClient:
         endpoint: str,
         method: str,
         attempts: int,
+        include_body: bool = True,
     ) -> None:
         """Raise the package exception corresponding to an HTTP response.
 
@@ -852,6 +870,7 @@ class QuickBaseStructureClient:
             endpoint: API endpoint relative to :attr:`base_url`.
             method: HTTP method.
             attempts: Total number of attempts made.
+            include_body: Whether a redacted body preview can appear in the error.
 
         Raises:
             QuickbaseAuthError: If Quickbase returns HTTP 401.
@@ -861,7 +880,7 @@ class QuickBaseStructureClient:
             QuickbaseHTTPError: For other unsuccessful status codes.
         """
         status_code = response.status_code
-        response_body = self._response_body_preview(response)
+        response_body = self._response_body_preview(response) if include_body else None
         headers = getattr(response, "headers", {}) or {}
         retry_after = headers.get("Retry-After") if isinstance(headers, Mapping) else None
 
@@ -904,6 +923,37 @@ class QuickBaseStructureClient:
             cause=http_error,
         ) from http_error
 
+    @staticmethod
+    def _validate_xml_response(response: requests.Response, endpoint: str, action: str) -> None:
+        """Reject XML application errors before a post-change backup can run.
+
+        XML can report an error with HTTP 200. Remote error text is omitted
+        because it can contain credentials or field contents.
+        """
+        result = parse_xml_response(response.text)
+        code = int(result["errcode"])
+        if code == 0:
+            if result.get("action") not in (None, action):
+                raise QuickbaseHTTPError("Quickbase XML response has an unexpected action.")
+            return
+        error_cls: type[QuickbaseError] = QuickbaseHTTPError
+        if code in {20, 22, 24}:
+            error_cls = QuickbaseAuthError
+        elif code == 3:
+            error_cls = QuickbasePermissionError
+        elif code in {30, 31, 32}:
+            error_cls = QuickbaseNotFoundError
+        context: Dict[str, Any] = {
+            "operation": action,
+            "endpoint": endpoint,
+            "xml_error_code": code,
+            "status_code": response.status_code,
+        }
+        raise error_cls(
+            format_error_message("Quickbase XML request failed.", **context),
+            context=context,
+        )
+
     def request(
         self,
         *,
@@ -912,6 +962,10 @@ class QuickBaseStructureClient:
         payload: RequestPayload | None = None,
         headers: Mapping[str, str] | None = None,
         app_id_for_backup: str | None = None,
+        app_ids_for_backup: list[str] | None = None,
+        solution_id_for_backup: str | None = None,
+        xml_action: str | None = None,
+        app_token: str | None = None,
     ) -> requests.Response:
         """Send an authenticated HTTP request to Quickbase.
 
@@ -926,6 +980,14 @@ class QuickBaseStructureClient:
             headers: Optional per-request headers.
             app_id_for_backup: Application ID to back up around a mutating
                 request.
+            app_ids_for_backup: All affected application IDs for a solution
+                update. Cannot be combined with ``app_id_for_backup``.
+            solution_id_for_backup: Solution to export for this request's
+                schema backups. Overrides the client's default solution ID.
+            xml_action: ``API_SetKeyField`` or ``API_SetFieldProperties``. Uses
+                the authenticated realm and a ``/db/{table_id}`` endpoint.
+                The dictionary payload becomes escaped XML with authentication.
+            app_token: Optional application token for an XML request.
 
         Returns:
             A successful Quickbase HTTP response.
@@ -940,16 +1002,65 @@ class QuickBaseStructureClient:
             QuickbaseTransportError: If transport errors persist after retries
                 or no terminal response is produced.
             QuickbaseBackupError: If an automatic backup fails.
+            QuickbaseValidationError: If XML or backup arguments are invalid.
+            QuickbasePayloadError: If an XML response is malformed.
         """
-        backup_state = None
-        if (
-            self._backup_suppression_depth == 0
-            and app_id_for_backup is not None
-            and method in {"POST", "PUT", "PATCH", "DELETE"}
+        if app_id_for_backup is not None and app_ids_for_backup is not None:
+            raise QuickbaseValidationError("Supply one backup application argument, not both.")
+        if app_ids_for_backup is not None and (
+            not isinstance(app_ids_for_backup, list)
+            or any(not isinstance(item, str) or not item.strip() for item in app_ids_for_backup)
         ):
-            backup_state = self.backup_manager.trigger_pre_backup(app_id_for_backup)
+            raise QuickbaseValidationError(
+                "app_ids_for_backup must be a list of non-empty application IDs."
+            )
+        backup_ids = list(dict.fromkeys(app_ids_for_backup or []))
+        if app_id_for_backup is not None:
+            backup_ids = [app_id_for_backup]
+        backup_ids = [validate_dbid(app_id) for app_id in backup_ids]
+        if solution_id_for_backup is not None and (
+            not isinstance(solution_id_for_backup, str) or not solution_id_for_backup.strip()
+        ):
+            raise QuickbaseValidationError("solution_id_for_backup must be a non-empty string.")
 
         url = f"{self.base_url}{endpoint}"
+        if xml_action is not None:
+            if (
+                method != "POST"
+                or re.fullmatch(r"/db/[A-Za-z0-9]+", endpoint) is None
+                or re.fullmatch(r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*", self.auth.realm) is None
+                or not isinstance(payload, dict)
+            ):
+                raise QuickbaseValidationError(
+                    "XML requests require POST, a /db/{table_id} endpoint, "
+                    "a valid realm hostname, and a dictionary payload."
+                )
+            payload = build_xml_request(xml_action, payload, self.auth.user_token, app_token)
+            headers = {
+                **(headers or {}),
+                "Content-Type": "application/xml",
+                "QUICKBASE-ACTION": xml_action,
+                "X_QUICKBASE_RETURN_HTTP_ERROR": "true",
+            }
+            url = f"https://{self.auth.realm}{endpoint}"
+        elif app_token is not None:
+            raise QuickbaseValidationError("app_token is only supported for XML requests.")
+
+        backup_states: list[tuple[str, Dict[str, Any]]] = []
+        if (
+            self._backup_suppression_depth == 0
+            and method in {"POST", "PUT", "PATCH", "DELETE"}
+        ):
+            for app_id in backup_ids:
+                if solution_id_for_backup is None:
+                    state = self.backup_manager.trigger_pre_backup(app_id)
+                else:
+                    state = self.backup_manager.trigger_pre_backup(
+                        app_id, solution_id=solution_id_for_backup
+                    )
+                if state:
+                    backup_states.append((app_id, state))
+
         terminal_response = None
 
         for attempt in range(1, self.request_config.retry_count + 2):
@@ -963,8 +1074,15 @@ class QuickBaseStructureClient:
             )
             try:
                 request_body: Dict[str, Any] = {}
+                if xml_action is not None:
+                    # Redirects must not forward credentials in an XML body.
+                    request_body["allow_redirects"] = False
                 if isinstance(payload, (str, bytes)):
-                    request_body["data"] = payload
+                    request_body["data"] = (
+                        payload.encode("utf-8")
+                        if xml_action is not None and isinstance(payload, str)
+                        else payload
+                    )
                 elif payload is not None:
                     request_body["json"] = payload
 
@@ -994,6 +1112,10 @@ class QuickBaseStructureClient:
                     retry_delay=retry_delay,
                 )
                 if response.status_code < 400:
+                    if xml_action is not None:
+                        if 300 <= response.status_code < 400:
+                            raise QuickbaseHTTPError("Quickbase XML redirects are not supported.")
+                        self._validate_xml_response(response, endpoint, xml_action)
                     terminal_response = response
                     break
 
@@ -1001,11 +1123,18 @@ class QuickBaseStructureClient:
                     time.sleep(retry_delay or 0.0)
                     continue
 
+                if xml_action is not None:
+                    try:
+                        self._validate_xml_response(response, endpoint, xml_action)
+                    except QuickbasePayloadError:
+                        # Non-XML HTTP failures retain the normal HTTP mapping.
+                        pass
                 self._raise_http_error(
                     response=response,
                     endpoint=endpoint,
                     method=method,
                     attempts=attempt,
+                    include_body=xml_action is None,
                 )
             except requests.Timeout as exc:
                 if attempt <= self.request_config.retry_count:
@@ -1047,7 +1176,24 @@ class QuickBaseStructureClient:
             )
 
         # Intercept mutation to trigger post-backup
-        if backup_state:
-            self.backup_manager.trigger_post_backup(backup_state)
+        backup_failures: list[tuple[str, QuickbaseBackupError]] = []
+        for app_id, state in backup_states:
+            try:
+                self.backup_manager.trigger_post_backup(state)
+            except QuickbaseBackupError as exc:
+                backup_failures.append((app_id, exc))
+        if backup_failures:
+            if len(backup_states) == 1:
+                raise backup_failures[0][1]
+            context: Dict[str, Any] = {
+                "operation": "QuickBaseStructureClient.request",
+                "failed_app_ids": [app_id for app_id, _ in backup_failures],
+            }
+            cause = backup_failures[0][1]
+            raise QuickbaseBackupError(
+                format_error_message("Post-change backups failed after the mutation.", **context),
+                context=context,
+                cause=cause,
+            ) from cause
 
         return terminal_response

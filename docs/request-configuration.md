@@ -64,8 +64,9 @@ takes precedence over exponential backoff. Otherwise, the delay is:
 backoff_factor * (2 ** (failed_attempt - 1)) + random_jitter
 ```
 
-Successful responses have a status code below 400. Terminal failures are translated to package
-exceptions:
+REST responses with a status code below 400 pass the HTTP success check.
+XML responses must also contain a successful `errcode`.
+Terminal failures are translated to package exceptions:
 
 | Condition | Exception |
 |---|---|
@@ -148,12 +149,22 @@ caller:
 ```python
 response = client.request(
     method="GET",
-    endpoint="/apps/app-id",
+    endpoint="/apps/b12345678",
 )
 ```
 
 Endpoints must begin with `/`. Dictionary and list payloads are sent as JSON. String and byte
 payloads are sent as raw request data, which is required for QBL documents.
+
+XML requests use a separate mode. With `xml_action=`, the client sends an XML body to the
+authenticated realm instead of the REST `base_url`.
+The supported actions are `API_SetKeyField` and `API_SetFieldProperties`.
+The endpoint identifies the table as `/db/{table_id}`.
+The client adds the user token, escapes XML values, and uses the `QUICKBASE-ACTION` header.
+An optional `app_token` supplies an application token.
+The normal timeout, retry, logging, and backup behavior still applies.
+XML errors omit response body previews to protect user tokens and application tokens.
+Use the [XML wrappers](api-reference.md#xml-field-updates) for supported field and table operations.
 
 For a mutating direct request, pass `app_id_for_backup` only when the operation should
 participate in automatic backup orchestration:
@@ -161,8 +172,20 @@ participate in automatic backup orchestration:
 ```python
 response = client.request(
     method="POST",
-    endpoint="/tables/table-id?appId=app-id",
+    endpoint="/tables/b23456789?appId=b12345678",
     payload={"description": "Managed table."},
-    app_id_for_backup="app-id",
+    app_id_for_backup="b12345678",
 )
 ```
+
+For an operation that changes multiple apps, pass `app_ids_for_backup` with every affected app ID.
+All pre-change backups complete before the mutation. Post-change backups follow a successful response.
+If a post-change backup fails, the client still attempts the remaining backups.
+It then raises `QuickbaseBackupError` with the failed application IDs in its context.
+The mutation has already succeeded at this point.
+`SolutionsManager.update_solution` uses this argument for QBL updates.
+
+`solution_id_for_backup` overrides the global Solution ID for schema backups of one request.
+The backup state preserves this target for the post-change export.
+`SolutionsManager.update_solution` supplies its target Solution ID automatically.
+`preview_solution_changes` sends no backup context, so its read-only `PUT` does not create backups.

@@ -13,7 +13,7 @@ directory. Keep this index current whenever documentation pages are added, renam
 - [Automatic Backups](automatic-backups.md): schema backups, clone backups, fallback behavior,
   and operational cautions.
 - [Schema Exports and Solutions](schema-exports-and-solutions.md): compiled JSON/Markdown
-  schemas and raw QBL workflows.
+  schemas, raw QBL workflows, and Solution updates for table sorting and choice sources.
 - [Examples](examples.md): schema export command and PTO demo configuration.
 
 ## Project Guides
