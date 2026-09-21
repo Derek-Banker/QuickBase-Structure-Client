@@ -6,23 +6,30 @@ mutations. Automatic backup is enabled by default.
 Backups can create Quickbase applications or write QBL files. Treat clone backups as
 potentially billable and verify tenant limits before enabling them.
 
+QBL and clone backups preserve structure only. Clone backups exclude records and attachments.
+These backups cannot recover data deleted by a structural mutation.
+
 ## Trigger Rules
 
 A backup runs only when all of the following are true:
 
 - `auto_backup=True`.
 - The request method is `POST`, `PUT`, `PATCH`, or `DELETE`.
-- The wrapper supplies an `app_id_for_backup`.
+- The wrapper supplies `app_id_for_backup` or a nonempty `app_ids_for_backup` list.
 - Backup suppression is not active.
 
 Read-only requests do not trigger backups. Creating a new app does not have an existing app ID
 to back up, so the app creation request itself is not surrounded by backups.
+Solution change previews are read-only and do not create backups, despite their `PUT` request method.
 
 The order for a successful structural mutation is:
 
 1. Create the pre-change backup.
 2. Send the Quickbase mutation.
 3. Create the post-change backup.
+
+For multiple applications, all pre-change backups complete before the mutation.
+The post-change backups follow a successful response.
 
 If the pre-change backup fails, the mutation is not sent. If the mutation fails, the
 post-change backup is not created. If the post-change backup fails, the mutation has already
@@ -57,15 +64,26 @@ client = QuickBaseStructureClient(
 Files are written as:
 
 ```text
-backups/<app-id>_pre_<UTC timestamp>.qbl
-backups/<app-id>_post_<UTC timestamp>.qbl
+backups/<app-id>_pre_<UTC timestamp>_<random suffix>.qbl
+backups/<app-id>_post_<UTC timestamp>_<random suffix>.qbl
 ```
+
+The UTC timestamp uses `YYYYmmdd_HHMMSS`.
+The random suffix contains 16 lowercase hexadecimal characters.
+Each pre-change and post-change pair shares the same timestamp and suffix.
+Exclusive file writes never overwrite an existing backup.
+If a filename collision occurs, the backup fails or uses the configured pre-change clone fallback.
 
 The configured `backup_solution_id` determines what the exported QBL contains. The client does
 not dynamically create or modify that Solution to match each `app_id`. Confirm that the
 Solution represents the application structure you intend to protect.
 
-When `backup_solution_id` is missing and clone fallback is disabled, the pre-backup raises
+`SolutionsManager.update_solution` automatically uses the target Solution for its schema backups.
+For other direct requests, `solution_id_for_backup` can override the global Solution ID.
+The backup state captures the selected ID before the mutation.
+Later changes to client configuration do not redirect the post-change export.
+
+When no Solution ID is available and clone fallback is disabled, the pre-backup raises
 `QuickbaseValidationError`.
 
 ## Clone Backup
@@ -83,9 +101,11 @@ client = QuickBaseStructureClient(
 The clone names are:
 
 ```text
-Backup_Pre_<app-id>_<UTC timestamp>
-Backup_Post_<app-id>_<UTC timestamp>
+Backup_Pre_<app-id>_<UTC timestamp>_<random suffix>
+Backup_Post_<app-id>_<UTC timestamp>_<random suffix>
 ```
+
+Each pair shares the timestamp and random suffix described for schema backups.
 
 Clone backups use:
 
@@ -114,7 +134,7 @@ client = QuickBaseStructureClient(
 
 Fallback occurs when:
 
-- No `backup_solution_id` is configured.
+- No global or request-specific Solution ID is available.
 - The pre-change QBL export or local pre-backup write fails.
 
 After fallback, both pre-change and post-change backups use app clones for that mutation.
@@ -127,8 +147,8 @@ Post-change schema export failures do not fall back to cloning. They raise
 Wrappers created through an app or table retain the application ID:
 
 ```python
-app = client.app("app-id")
-table = app.table("table-id")
+app = client.app("b12345678")
+table = app.table("b23456789")
 field = table.field(7)
 relationship = table.relationship(3)
 ```
@@ -138,7 +158,7 @@ This context lets field and relationship mutations participate in backups.
 The following direct reference omits the application ID:
 
 ```python
-table = client.table("table-id")
+table = client.table("b23456789")
 field = table.field(7)
 ```
 
@@ -147,7 +167,7 @@ mutations raise `QuickbaseValidationError` because the backup target is unknown.
 `app_id` when creating the table reference:
 
 ```python
-table = client.table("table-id", app_id="app-id")
+table = client.table("b23456789", app_id="b12345678")
 ```
 
 ## Temporary Suppression
@@ -160,7 +180,7 @@ with client.suppress_auto_backup():
         method="POST",
         endpoint="/custom/endpoint",
         payload={"example": True},
-        app_id_for_backup="app-id",
+        app_id_for_backup="b12345678",
     )
 ```
 

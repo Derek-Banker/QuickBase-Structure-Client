@@ -46,20 +46,29 @@ client = QuickBaseStructureClient(auth, auto_backup=False)
 
 `Auth` accepts a realm URL or bare hostname. It also accepts a raw token or a value prefixed
 with `QB-USER-TOKEN`. Empty normalized values raise `QuickbaseConfigurationError`.
+Internal whitespace, control characters, and non-ASCII characters in the normalized token raise
+the same error before a request.
 
 `auto_backup=True` is the client default. The examples on this page disable it until backup
 behavior has been deliberately configured. See [Automatic Backups](automatic-backups.md).
 
 ## Reference Existing Resources
 
-Bound resource wrappers retain IDs and parent context:
+Bound resource wrappers retain IDs and parent context.
+
+Replace the sample IDs with IDs from your Quickbase app.
 
 ```python
-app = client.app("app-id", name="Operations")
-table = app.table("table-id", name="Orders")
+app = client.app("b12345678", name="Operations")
+table = app.table("b23456789", name="Orders")
 field = table.field(7, label="Total")
 relationship = table.relationship(3)
 ```
+
+Table and application IDs must contain only ASCII letters and digits.
+Field IDs must be positive integers or strings of ASCII decimal digits.
+The client validates IDs before the relevant request or backup.
+Wrapper construction does not validate IDs.
 
 Read-only operations do not trigger automatic backups:
 
@@ -67,13 +76,15 @@ Read-only operations do not trigger automatic backups:
 app_details = app.get_details()
 tables = app.list_tables()
 fields = table.list_fields(include_field_perms=True)
+field_usage = table.get_fields_usage(skip=0, top=100)
+total_usage = field.get_usage()
 relationships = table.list_relationships()
 ```
 
 Use `client.table(...)` when an application wrapper is not convenient:
 
 ```python
-table = client.table("table-id", app_id="app-id", name="Orders")
+table = client.table("b23456789", app_id="b12345678", name="Orders")
 ```
 
 Include `app_id` when constructing a table directly if you intend to update its structure.
@@ -101,12 +112,35 @@ orders = app.create_table(
 total = orders.create_field(
     "Total",
     "currency",
-    {"description": "Order total."},
+    options={"description": "Order total."},
 )
 ```
 
 For field creation and updates, `description` is a convenience alias for Quickbase
 `fieldHelp`. If both keys are supplied, `fieldHelp` wins.
+
+The `options` argument contains the whole field request body. Type-specific properties
+belong in its nested `properties` dictionary:
+
+```python
+status = orders.create_field(
+    "Status",
+    "text-multiple-choice",
+    options={
+        "properties": {
+            "choices": ["Pending", "Approved"],
+            "allowNewChoices": False,
+        },
+    },
+)
+orders.update_field(status["id"], options={"required": True})
+```
+
+The REST creation endpoint does not accept `required` or `unique`.
+Set those options through an update after field creation.
+
+Existing positional calls and the legacy `properties=` keyword still work.
+Use `options=` for new code. Supplying both keywords raises `QuickbaseValidationError`.
 
 `assign_token=True` asks Quickbase to assign the current user token to the newly created app.
 This can be required before the same token can create tables or fields in that app.
@@ -116,15 +150,36 @@ This can be required before the same token can create tables or fields in that a
 ```python
 app.update(description="Managed by the platform team.")
 orders.update(plural_name="Customer Orders")
-orders.update_field(total["id"], {"label": "Order Total"})
+orders.update_field(total["id"], options={"label": "Order Total"})
 
 field = orders.field(total["id"])
-field.update({"description": "Final order amount."})
+field.update(options={"description": "Final order amount."})
 ```
 
 These are structural mutations. When automatic backup is enabled and application context is
 available, the client creates a pre-change backup, performs the request, and creates a
 post-change backup.
+
+Some properties require the XML API:
+
+```python
+field.update_xml({"doesdatacopy": False})
+order_number = orders.create_field(
+    "Order Number",
+    "text",
+)
+orders.update_field(order_number["id"], options={"unique": True, "required": True})
+orders.set_key_field(order_number["id"])
+```
+
+The key field must meet Quickbase's uniqueness and field-type requirements.
+If the app requires an application token, pass `app_token=` to either XML method.
+The client uses its existing user token for authentication.
+See [XML field updates](api-reference.md#xml-field-updates) for the supported workflow.
+
+Default table sorting and choice-source references use
+[Solution updates through QBL](schema-exports-and-solutions.md#update-a-solution).
+Existing field type conversion remains unsupported.
 
 ## Destructive Operations
 
@@ -134,7 +189,7 @@ Deletion calls affect live Quickbase structure:
 orders.delete_fields([7, 8])
 orders.delete_relationship(3)
 orders.delete()
-client.delete_app("app-id", confirm_name="Managed Operations")
+client.delete_app("b12345678", confirm_name="Managed Operations")
 ```
 
 Application deletion requires the exact application name as a confirmation payload. Field

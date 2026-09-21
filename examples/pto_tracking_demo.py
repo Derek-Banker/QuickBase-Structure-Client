@@ -308,7 +308,7 @@ def _create_fields(
     created: dict[str, Any] = {}
     for label, field_type, properties in definitions:
         print(f"Creating field: {table.name}.{label}")
-        created[label] = table.create_field(label, field_type, properties)
+        created[label] = table.create_field(label, field_type, options=properties)
     return created
 
 

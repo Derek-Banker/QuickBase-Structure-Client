@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-21
+
+### Added
+
+- Add table-wide field usage queries with pagination and usage queries for individual fields.
+- Add XML methods to change table key fields and field properties, including `doesdatacopy`
+  and `allowHTML`, with automatic backups and sanitized error handling.
+- Add Solution updates from complete QBL documents, with backups for each supplied application.
+  Document the QBL workflow for default table sorting and field choice sources.
+- Add read-only QBL change previews before Solution updates.
+- Add opt-in live tests for field and table operations with explicit targets and automatic cleanup.
+- Add `options=` for field request bodies. Existing positional calls and the `properties=`
+  keyword remain compatible. Quickbase's nested `properties` object remains unchanged.
+
+### Fixed
+
+- Remove the field `description` alias from requests when `fieldHelp` is also present.
+  The explicit `fieldHelp` value takes precedence.
+- Use the target Solution for schema backups of QBL updates, regardless of the global backup target.
+- Preserve backup timestamps and append random suffixes to schema filenames and clone names.
+  Exclusive file writes prevent existing schema backups from being overwritten.
+
+### Security
+
+- Reject invalid field IDs, table IDs, backup application IDs, and field creation input
+  before backups or requests.
+- Reject invalid characters in user tokens before HTTP requests and keep token values out of errors.
+
 ## [0.1.6] - 2026-06-15
 
 ### Added

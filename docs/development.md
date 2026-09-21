@@ -33,7 +33,7 @@ support used by local workflows. Install `build` separately when creating distri
 | `src/quickbase_structure_client/schema_exporter.py` | Schema compilation and rendering |
 | `src/quickbase_structure_client/tools/backup_manager.py` | Pre-change and post-change backups |
 | `src/quickbase_structure_client/exceptions.py` | Package exception hierarchy |
-| `tests/` | Mock-based unit tests and behavioral specification |
+| `tests/` | Mock-based unit tests and gated live tests |
 | `examples/` | Schema export and PTO demo commands |
 | `docs/` | Long-form user and developer documentation |
 
@@ -77,6 +77,40 @@ Normal CI sets `QUICKBASE_RUN_INTEGRATION_TESTS=0`.
 
 For resource wrapper changes, assert the HTTP method, endpoint, payload, headers, and
 `app_id_for_backup`.
+
+### Live Field and Table Tests
+
+[`tests/test_live_structure.py`](../tests/test_live_structure.py) covers REST table and field
+operations, XML field properties, and XML key-field changes. It creates,
+changes, and deletes its own uniquely named test table. It also changes and restores that
+table's key field. The test disables automatic backups and clone fallback. This test file
+does not cover Solutions or QBL operations.
+
+Use a disposable application that you have permission to change. Put its realm and token in
+the Git-ignored `.env` file, using `QUICKBASE_REALM_HOSTNAME` and `QUICKBASE_USER_TOKEN`.
+Use a token that can access only the test application.
+If the application requires an app token, set `QUICKBASE_APP_TOKEN` in `.env` for the XML calls.
+
+Set all three variables in the PowerShell session before the test. Replace the sample realm
+and application ID with your approved targets.
+
+```powershell
+$env:QUICKBASE_RUN_INTEGRATION_TESTS = "1"
+$env:QUICKBASE_TEST_REALM_HOSTNAME = "your-realm.quickbase.com"
+$env:QUICKBASE_TEST_APP_ID = "b12345678"
+try {
+    .\.venv\Scripts\python.exe -m pytest tests/test_live_structure.py -m integration -q
+}
+finally {
+    Remove-Item Env:QUICKBASE_RUN_INTEGRATION_TESTS
+}
+```
+
+The test requires these variables before it reads `.env`. The credential realm must match
+the explicit test realm. OS environment variables override values from `.env`.
+
+Cleanup runs even if a test phase fails. If cleanup fails, the error includes the test table
+ID for manual cleanup. An interrupted process can also leave its test table behind.
 
 ## Implementation Constraints
 

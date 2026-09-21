@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
+from urllib.parse import quote
 
+from quickbase_structure_client._validation import validate_dbid
 from quickbase_structure_client.exceptions import QuickbaseValidationError, format_error_message
 
 if TYPE_CHECKING:
@@ -43,7 +45,7 @@ class SolutionsManager:
             QuickbaseValidationError: If ``solution_id`` is empty.
             QuickbaseError: If the Quickbase request fails.
         """
-        if not solution_id:
+        if not isinstance(solution_id, str) or not solution_id.strip():
             raise QuickbaseValidationError(
                 format_error_message(
                     "solution_id is required to export a solution.",
@@ -58,7 +60,7 @@ class SolutionsManager:
         # Solutions endpoints typically return QBL text (often yaml format)
         response = self.api_client.request(
             method="GET",
-            endpoint=f"/solutions/{solution_id}",
+            endpoint=f"/solutions/{quote(solution_id, safe='')}",
             headers=headers or None,
         )
         return response.text
@@ -98,6 +100,149 @@ class SolutionsManager:
         response = self.api_client.request(
             method="POST",
             endpoint="/solutions",
+            payload=qbl,
+            headers=headers,
+        )
+        return response.json()
+
+    def update_solution(
+        self,
+        solution_id: str,
+        qbl: str,
+        *,
+        app_ids_for_backup: list[str] | None = None,
+        errors_as_success: bool = False,
+    ) -> Dict[str, Any]:
+        """Update an existing solution with a complete QBL document.
+
+        Preserve the full exported solution and its logical IDs. Quickbase can
+        delete tables and fields omitted from the document, including their data.
+        Quickbase validates the QBL. This method does not merge partial documents
+        or determine which applications the document affects.
+        Schema backups export this target solution, regardless of the client's
+        default backup solution. Backups do not preserve records or attachments.
+
+        Args:
+            solution_id: Non-empty Quickbase solution ID.
+            qbl: Non-empty, complete QBL document for the target solution.
+            app_ids_for_backup: IDs of every affected application. Required when
+                automatic backups are enabled. Duplicate IDs are removed before
+                the request. All pre-change backups run before the update, and
+                post-change backups run after a successful request.
+            errors_as_success: Whether Quickbase returns QBL processing errors
+                as successful HTTP responses. Inspect the result for these errors.
+
+        Returns:
+            The solution update response returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If an argument is invalid or automatic
+                backups are enabled without application IDs.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
+        operation = "SolutionsManager.update_solution"
+        if not isinstance(solution_id, str) or not solution_id.strip():
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "A non-empty solution_id is required to update a solution.",
+                    operation=operation,
+                )
+            )
+        if not isinstance(qbl, str) or not qbl.strip():
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "A non-empty QBL document is required to update a solution.",
+                    operation=operation,
+                )
+            )
+        if not isinstance(errors_as_success, bool):
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "errors_as_success must be a boolean.",
+                    operation=operation,
+                )
+            )
+        backup_args: Dict[str, Any] = {}
+        if app_ids_for_backup is not None:
+            if not isinstance(app_ids_for_backup, list) or any(
+                not isinstance(app_id, str) or not app_id.strip()
+                for app_id in app_ids_for_backup
+            ):
+                raise QuickbaseValidationError(
+                    format_error_message(
+                        "app_ids_for_backup must be a list of non-empty application IDs.",
+                        operation=operation,
+                    )
+                )
+            backup_args["app_ids_for_backup"] = list(
+                dict.fromkeys(validate_dbid(app_id) for app_id in app_ids_for_backup)
+            )
+        if self.api_client.auto_backup and not app_ids_for_backup:
+            raise QuickbaseValidationError(
+                format_error_message(
+                    "Solution updates require app_ids_for_backup when auto_backup is enabled.",
+                    operation=operation,
+                )
+            )
+
+        headers = {"Content-Type": "application/x-yaml"}
+        if errors_as_success:
+            headers["X-QBL-Errors-As-Success"] = "true"
+        response = self.api_client.request(
+            method="PUT",
+            endpoint=f"/solutions/{quote(solution_id, safe='')}",
+            payload=qbl,
+            headers=headers,
+            solution_id_for_backup=solution_id,
+            **backup_args,
+        )
+        return response.json()
+
+    def preview_solution_changes(
+        self,
+        solution_id: str,
+        qbl: str,
+        *,
+        errors_as_success: bool = False,
+    ) -> Dict[str, Any]:
+        """Preview the changes a QBL document would make to a solution.
+
+        This operation does not apply the QBL or create automatic backups.
+        Review the returned changes, especially removals, before updating.
+        A preview does not lock the solution against subsequent changes.
+
+        Args:
+            solution_id: Non-empty Quickbase solution ID or alias.
+            qbl: Non-empty, complete QBL document to preview.
+            errors_as_success: Whether QBL processing errors are returned in a
+                successful HTTP response. Inspect the result for those errors.
+
+        Returns:
+            The proposed changes and metadata returned by Quickbase.
+
+        Raises:
+            QuickbaseValidationError: If an argument is invalid.
+            QuickbaseError: If the Quickbase request fails.
+        """
+        operation = "SolutionsManager.preview_solution_changes"
+        if not isinstance(solution_id, str) or not solution_id.strip():
+            raise QuickbaseValidationError(
+                format_error_message("A non-empty solution_id is required.", operation=operation)
+            )
+        if not isinstance(qbl, str) or not qbl.strip():
+            raise QuickbaseValidationError(
+                format_error_message("A non-empty QBL document is required.", operation=operation)
+            )
+        if not isinstance(errors_as_success, bool):
+            raise QuickbaseValidationError(
+                format_error_message("errors_as_success must be a boolean.", operation=operation)
+            )
+        headers = {"Content-Type": "application/x-yaml"}
+        if errors_as_success:
+            headers["X-QBL-Errors-As-Success"] = "true"
+        response = self.api_client.request(
+            method="PUT",
+            endpoint=f"/solutions/{quote(solution_id, safe='')}/changeset",
             payload=qbl,
             headers=headers,
         )

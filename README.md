@@ -9,7 +9,7 @@ focuses on administration and schema lifecycle work.
 
 ## Documentation
 
-See the [documentation index](docs/index.md) for all guides:
+See the [documentation index](docs/__index__.md) for all guides:
 
 - [Getting started](docs/getting-started.md)
 - [API reference](docs/api-reference.md)
@@ -57,7 +57,7 @@ orders = app.create_table(
 orders.create_field(
     "Total",
     "currency",
-    {"description": "Order total"},
+    options={"description": "Order total"},
 )
 
 schema = client.exporter.compile_schema(app.id)
@@ -73,7 +73,7 @@ both JSON and Markdown:
 ```powershell
 $env:QUICKBASE_REALM_HOSTNAME = "example.quickbase.com"
 $env:QUICKBASE_USER_TOKEN = "qb-user-token"
-python examples/export_schema.py --app-id "your-app-id"
+python examples/export_schema.py --app-id "b12345678"
 ```
 
 By default, the files are written to `schema_exports/<app-id>_schema.json` and
@@ -81,7 +81,7 @@ By default, the files are written to `schema_exports/<app-id>_schema.json` and
 directory:
 
 ```powershell
-python examples/export_schema.py --app-id "your-app-id" --output-dir "exports"
+python examples/export_schema.py --app-id "b12345678" --output-dir "exports"
 ```
 
 The same API can be used directly:
@@ -89,13 +89,14 @@ The same API can be used directly:
 ```python
 from pathlib import Path
 
-schema = client.exporter.compile_schema("your-app-id")
+schema = client.exporter.compile_schema("b12345678")
 client.exporter.to_json(schema, Path("exports/schema.json"))
 client.exporter.to_markdown(schema, Path("exports/schema.md"))
 ```
 
-Pass `table_id="your-table-id"` to `compile_schema` to export only one table. The example
-command provides the equivalent `--table-id "your-table-id"` option.
+Replace `b12345678` with your application's ID.
+Pass `table_id="b23456789"` to `compile_schema` to export only one table. The example
+command provides the equivalent `--table-id "b23456789"` option. Replace that sample table ID too.
 
 ## Solutions / QBL
 
@@ -107,6 +108,10 @@ from pathlib import Path
 qbl = Path("solution.qbl").read_text(encoding="utf-8")
 result = client.solutions.create_solution(qbl)
 ```
+
+For existing Solutions, preview changes with `preview_solution_changes` before `update_solution`.
+See the [QBL update workflow](docs/schema-exports-and-solutions.md#update-a-solution) for examples
+and deletion risks.
 
 ## Auto Backup
 
@@ -126,6 +131,8 @@ client = QuickBaseStructureClient(
 If `backup_method="schema"` has no `backup_solution_id` and fallback is enabled,
 the client falls back to app cloning. Internal backup calls suppress their own
 backup hooks to avoid recursive clone storms.
+
+These backups preserve structure only. They cannot recover deleted records or attachments.
 
 ## PTO Demo
 

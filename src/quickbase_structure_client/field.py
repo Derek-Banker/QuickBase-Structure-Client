@@ -5,6 +5,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict
 
+from quickbase_structure_client._validation import (
+    validate_dbid,
+    validate_field_definition,
+    validate_field_id,
+)
+from quickbase_structure_client._xml import (
+    parse_xml_response,
+    validate_xml_field_options,
+    validate_xml_id,
+)
 from quickbase_structure_client.exceptions import QuickbaseValidationError, format_error_message
 from quickbase_structure_client.table import normalize_field_payload
 
@@ -16,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 class StructureField:
     """Reference-like wrapper for a Quickbase field.
+
+    HTTP operations validate field IDs and the ASCII alphanumeric table ID.
+    Mutations also validate a supplied application ID before the request.
 
     Attributes:
         api_client: Client used to execute Quickbase API requests.
@@ -65,17 +78,21 @@ class StructureField:
         """Return the known field label."""
         return self._label
 
-    def _require_id(self, operation: str) -> int | str:
+    def _require_table_id(self) -> str:
+        """Return the validated table ID before an HTTP operation."""
+        return validate_dbid(self._table_id, argument_name="table_id")
+
+    def _require_id(self, operation: str) -> int:
         """Return the field ID or raise a validation error.
 
         Args:
             operation: Name of the operation requiring a field ID.
 
         Returns:
-            The resolved field ID.
+            The resolved positive field ID.
 
         Raises:
-            QuickbaseValidationError: If this reference has no field ID.
+            QuickbaseValidationError: If the field ID is missing or invalid.
         """
         if self._field_id is None:
             raise QuickbaseValidationError(
@@ -86,7 +103,7 @@ class StructureField:
                     field_label=self._label,
                 )
             )
-        return self._field_id
+        return validate_field_id(self._field_id)
 
     def _backup_app_id(self, operation: str) -> str | None:
         """Return the application ID required by automatic backups.
@@ -99,7 +116,7 @@ class StructureField:
 
         Raises:
             QuickbaseValidationError: If automatic backup is enabled and the
-                parent application ID is unknown.
+                parent application ID is unknown, or a supplied ID is invalid.
         """
         if self.api_client.auto_backup and not self._app_id:
             raise QuickbaseValidationError(
@@ -110,40 +127,44 @@ class StructureField:
                     field_id=self._field_id,
                 )
             )
-        return self._app_id
+        return validate_dbid(self._app_id) if self._app_id is not None else None
 
     def create(
         self,
         label: str,
         field_type: str,
+        options: Dict[str, Any] | None = None,
+        *,
         properties: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Create the field and update this reference.
 
         Args:
-            label: Field label.
-            field_type: Quickbase field type.
-            properties: Additional Quickbase field properties. ``description``
-                is accepted as an alias for ``fieldHelp``.
+            label: Non-empty field label.
+            field_type: Non-empty Quickbase field type name.
+            options: Additional top-level Quickbase field options. Put
+                type-specific settings in a nested ``properties`` dictionary.
+                ``description`` is an alias for ``fieldHelp``.
+            properties: Legacy keyword alias for ``options``. Do not supply both.
 
         Returns:
             The created field payload returned by Quickbase.
 
         Raises:
             QuickbaseValidationError: If automatic backup is enabled and the
-                parent application ID is unknown.
+                parent application ID is unknown, or the field options are invalid.
             QuickbaseError: If the Quickbase request or automatic backup fails.
         """
         payload: Dict[str, Any] = {
             "label": label,
             "fieldType": field_type,
         }
-        if properties:
-            payload.update(normalize_field_payload(properties))
+        payload.update(normalize_field_payload(options, properties=properties))
+        validate_field_definition(payload)
 
         response = self.api_client.request(
             method="POST",
-            endpoint=f"/fields?tableId={self._table_id}",
+            endpoint=f"/fields?tableId={self._require_table_id()}",
             payload=payload,
             app_id_for_backup=self._backup_app_id("StructureField.create"),
         )
@@ -162,11 +183,11 @@ class StructureField:
             The field properties returned by Quickbase.
 
         Raises:
-            QuickbaseValidationError: If this reference has no field ID.
+            QuickbaseValidationError: If the field ID is missing or invalid.
             QuickbaseError: If the Quickbase request fails.
         """
         field_id = self._require_id("StructureField.get_details")
-        endpoint = f"/fields/{field_id}?tableId={self._table_id}"
+        endpoint = f"/fields/{field_id}?tableId={self._require_table_id()}"
         if include_field_perms:
             endpoint += "&includeFieldPerms=true"
 
@@ -176,31 +197,96 @@ class StructureField:
             self._label = data["label"]
         return data
 
-    def update(self, properties: Dict[str, Any]) -> Dict[str, Any]:
+    def get_usage(self) -> list[Dict[str, Any]]:
+        """Retrieve usage details for the field.
+
+        Returns:
+            The list of usage entries returned by Quickbase for this field.
+
+        Raises:
+            QuickbaseValidationError: If the field ID is not a positive integer
+                or a string containing a positive integer.
+            QuickbaseError: If the Quickbase request fails.
+        """
+        field_id = self._require_id("StructureField.get_usage")
+        response = self.api_client.request(
+            method="GET",
+            endpoint=f"/fields/usage/{field_id}?tableId={self._require_table_id()}",
+        )
+        return response.json()
+
+    def update(
+        self,
+        options: Dict[str, Any] | None = None,
+        *,
+        properties: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         """Update field properties.
 
         Args:
-            properties: Field properties to update. ``description`` is
-                accepted as an alias for ``fieldHelp``.
+            options: Top-level field options to update. Put type-specific
+                settings in a nested ``properties`` dictionary. ``description``
+                is an alias for ``fieldHelp``.
+            properties: Legacy keyword alias for ``options``. Do not supply both.
 
         Returns:
             The updated field payload returned by Quickbase.
 
         Raises:
-            QuickbaseValidationError: If the field ID is unavailable, or if
-                automatic backup requires an unknown application ID.
+            QuickbaseValidationError: If the field ID is missing or invalid, the options
+                are missing or invalid, or automatic backup requires an unknown
+                application ID.
             QuickbaseError: If the Quickbase request or automatic backup fails.
         """
         field_id = self._require_id("StructureField.update")
         response = self.api_client.request(
             method="POST",
-            endpoint=f"/fields/{field_id}?tableId={self._table_id}",
-            payload=normalize_field_payload(properties),
+            endpoint=f"/fields/{field_id}?tableId={self._require_table_id()}",
+            payload=normalize_field_payload(options, properties=properties, required=True),
             app_id_for_backup=self._backup_app_id("StructureField.update"),
         )
         data = response.json()
         if "label" in data:
             self._label = data["label"]
+        return data
+
+    def update_xml(
+        self,
+        options: Dict[str, Any],
+        *,
+        app_token: str | None = None,
+    ) -> Dict[str, str]:
+        """Update field settings through the Quickbase XML API.
+
+        The response refreshes the cached label when Quickbase supplies ``fname``.
+
+        Args:
+            options: Field settings with the documented XML tag names.
+            app_token: Application token, if the application requires one.
+
+        Returns:
+            The successful XML response as a dictionary of text values.
+
+        Raises:
+            QuickbaseValidationError: If the field ID or options are invalid,
+                or automatic backup requires an unknown application ID.
+            QuickbaseError: If the Quickbase request or automatic backup fails.
+        """
+        operation = "StructureField.update_xml"
+        field_id = validate_xml_id(self._require_id(operation))
+        payload: Dict[str, Any] = {"fid": field_id}
+        payload.update(validate_xml_field_options(options))
+        response = self.api_client.request(
+            method="POST",
+            endpoint=f"/db/{self._require_table_id()}",
+            payload=payload,
+            xml_action="API_SetFieldProperties",
+            app_token=app_token,
+            app_id_for_backup=self._backup_app_id(operation),
+        )
+        data = parse_xml_response(response.text)
+        if "fname" in data:
+            self._label = data["fname"]
         return data
 
     def delete(self) -> Dict[str, Any]:
@@ -210,16 +296,15 @@ class StructureField:
             The deletion response returned by Quickbase.
 
         Raises:
-            QuickbaseValidationError: If the field ID is unavailable, or if
+            QuickbaseValidationError: If the field ID is missing or invalid, or if
                 automatic backup requires an unknown application ID.
-            ValueError: If the field ID cannot be converted to an integer.
             QuickbaseError: If the Quickbase request or automatic backup fails.
         """
         field_id = self._require_id("StructureField.delete")
         response = self.api_client.request(
             method="DELETE",
-            endpoint=f"/fields?tableId={self._table_id}",
-            payload={"fieldIds": [int(field_id)]},
+            endpoint=f"/fields?tableId={self._require_table_id()}",
+            payload={"fieldIds": [field_id]},
             app_id_for_backup=self._backup_app_id("StructureField.delete"),
         )
         self._field_id = None

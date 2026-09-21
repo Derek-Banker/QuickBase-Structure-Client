@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import traceback
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -25,7 +27,7 @@ from .conftest import FakeResponse
 
 
 def test_public_version_matches_default_user_agent() -> None:
-    assert __version__ == "0.1.6"
+    assert __version__ == "1.0.0"
     assert quickbase_api_module.DEFAULT_USER_AGENT["Version"] == __version__
 
 
@@ -44,6 +46,26 @@ def test_auth_normalizes_realm_hostname_and_user_token_prefix() -> None:
 def test_auth_normalization_helpers_are_available() -> None:
     assert normalize_realm_hostname("http://example.quickbase.com/") == "example.quickbase.com"
     assert normalize_user_token("qb-user-token token-value") == "token-value"
+
+
+@pytest.mark.parametrize("separator", ["\r", "\n", "\t", " ", "\x00", "\x7f", "é"])
+def test_auth_rejects_malformed_tokens_without_exposing_them(separator: str) -> None:
+    token = "private-user-token" + separator + "private-token-tail"
+
+    with pytest.raises(QuickbaseConfigurationError, match="visible ASCII") as captured:
+        Auth("example.quickbase.com", token)
+
+    visible = "".join(traceback.format_exception(captured.value)) + repr(captured.value.context)
+    assert token not in visible
+    assert "private-user-token" not in visible
+    assert "private-token-tail" not in visible
+    assert captured.value.__cause__ is None
+
+
+@pytest.mark.parametrize("token", [None, 123, b"token", {"token": "private"}])
+def test_auth_rejects_nonstring_tokens_with_package_error(token: Any) -> None:
+    with pytest.raises(QuickbaseConfigurationError, match="must be a string"):
+        Auth("example.quickbase.com", token)
 
 
 @pytest.mark.parametrize(
